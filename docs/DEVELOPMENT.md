@@ -29,9 +29,10 @@ payloads, channel URLs, QR images, or keys in routine diagnostics.
 is enabled and Windows has restarted. Then use `./tools/check.ps1 -Connected`.
 The emulator tests Android UI/lifecycle; it does not emulate Bluetooth LoRa radios.
 Startup now waits for Android's package service, not just ADB connectivity.
-It uses hardware graphics, 3 GB RAM and four virtual CPU cores on this workstation.
-For graphics-driver trouble, close the emulator and use
-`./tools/start-emulator.ps1 -Graphics swiftshader` (slower software fallback).
+It uses software graphics, 3 GB RAM and four virtual CPU cores on this workstation.
+Hardware graphics caused the ATAK SDK host to crash with "No config chosen";
+SwiftShader renders it successfully. `-Graphics host` is an optional alternative
+for other workloads, not the verified ATAK baseline.
 Only one Hardline emulator uses port 5554. An already-running instance is reused.
 
 ## Build outputs

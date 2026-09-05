@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([ValidateSet('host','swiftshader')][string]$Graphics = 'host')
+param([ValidateSet('host','swiftshader')][string]$Graphics = 'swiftshader')
 . "$PSScriptRoot/environment.ps1"
 & "$env:ANDROID_HOME/emulator/emulator.exe" -accel-check
 if ($LASTEXITCODE -ne 0) { throw 'Enable Windows Hypervisor Platform and reboot before starting the emulator.' }
