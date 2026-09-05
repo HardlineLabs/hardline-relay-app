@@ -1,0 +1,7 @@
+# version\tmode\tstate\texpected display
+1	live	disconnected	Mesh disconnected
+1	live	service_connected	Radio status unknown
+1	live	radio_connected	Radio connected; mesh reachability unverified
+1	simulated	radio_connected	SIMULATION: Radio connected
+2	live	radio_connected	Incompatible status protocol
+1	live	future_state	Unknown mesh state

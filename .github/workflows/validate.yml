@@ -1,0 +1,52 @@
+name: Validate
+on:
+  push:
+    branches: [develop, 'feature/**']
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Exact Microsoft JDK
+        shell: pwsh
+        run: |
+          $archive = "$env:RUNNER_TEMP/jdk17.zip"
+          curl.exe -fsSL --retry 3 -o $archive https://aka.ms/download-jdk/microsoft-jdk-17.0.20.1-windows-x64.zip
+          if ($LASTEXITCODE -ne 0) { throw 'JDK download failed' }
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne '3d9006956fc8af5601cd24ffc4f468bef48279c7ebd8171b9bdf90d0aabfbf1f') { throw 'JDK digest mismatch' }
+          Expand-Archive $archive "$env:RUNNER_TEMP/jdk"
+          "JAVA_HOME=$env:RUNNER_TEMP/jdk/jdk-17.0.20.1+1" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "$env:RUNNER_TEMP/jdk/jdk-17.0.20.1+1/bin" | Out-File $env:GITHUB_PATH -Append -Encoding utf8
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.13.15'
+      - name: Pinned Android packages
+        shell: pwsh
+        run: |
+          $env:ANDROID_HOME = "$env:RUNNER_TEMP/android-sdk"
+          $archive = "$env:RUNNER_TEMP/android-cli.zip"
+          curl.exe -fsSL --retry 3 -o $archive https://dl.google.com/android/repository/commandlinetools-win-15859902_latest.zip
+          if ($LASTEXITCODE -ne 0) { throw 'Android CLI download failed' }
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne '90ae805d20434428bffcb699c290860f19bb5f66a67e6b330067e3de801fb04a') { throw 'Android CLI digest mismatch' }
+          Expand-Archive $archive "$env:ANDROID_HOME/cmdline-tools/22.0"
+          $manager = "$env:ANDROID_HOME/cmdline-tools/22.0/cmdline-tools/bin/sdkmanager.bat"
+          1..30 | ForEach-Object { 'y' } | & $manager --sdk_root=$env:ANDROID_HOME --licenses | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'SDK license setup failed' }
+          & $manager --sdk_root=$env:ANDROID_HOME "platforms;android-36" "build-tools;36.0.0"
+          if ($LASTEXITCODE -ne 0) { throw 'SDK installation failed' }
+          $properties = Get-Content "$env:ANDROID_HOME/platforms/android-36/source.properties" -Raw
+          if ($properties -notmatch 'Pkg.Revision=2(?:\r?\n|$)') { throw 'Android platform revision drifted' }
+          "ANDROID_HOME=$env:ANDROID_HOME" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "ANDROID_SDK_ROOT=$env:ANDROID_HOME" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Build and test
+        shell: pwsh
+        run: |
+          ./gradlew.bat :core:test :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --console=plain
+          if ($LASTEXITCODE -ne 0) { throw 'Gradle checks failed' }
+          $env:PYTHONDONTWRITEBYTECODE = '1'
+          python -m unittest discover -s tools -p 'test_*.py'
+          if ($LASTEXITCODE -ne 0) { throw 'Device-script tests failed' }
