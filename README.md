@@ -13,4 +13,4 @@ No backend enrollment or key infrastructure is included.
 
 Versioned status vectors live in [protocol](protocol/README.md). The companion
 [ATAK plugin repository](https://github.com/HardlineLabs/hardline-relay-atak-plugin)
-has a standalone status harness while the matching ATAK SDK is obtained.
+has a standalone status harness and a local SDK-host plugin scaffold.
