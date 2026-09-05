@@ -28,6 +28,11 @@ payloads, channel URLs, QR images, or keys in routine diagnostics.
 `./tools/start-emulator.ps1` starts Hardline_Relay_API34 after the hypervisor
 is enabled and Windows has restarted. Then use `./tools/check.ps1 -Connected`.
 The emulator tests Android UI/lifecycle; it does not emulate Bluetooth LoRa radios.
+Startup now waits for Android's package service, not just ADB connectivity.
+It uses hardware graphics, 3 GB RAM and four virtual CPU cores on this workstation.
+For graphics-driver trouble, close the emulator and use
+`./tools/start-emulator.ps1 -Graphics swiftshader` (slower software fallback).
+Only one Hardline emulator uses port 5554. An already-running instance is reused.
 
 ## Build outputs
 
