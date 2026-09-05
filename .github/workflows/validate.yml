@@ -27,10 +27,21 @@ jobs:
       - name: Pinned Android packages
         shell: pwsh
         run: |
-          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+          $env:ANDROID_HOME = "$env:RUNNER_TEMP/android-sdk"
+          $archive = "$env:RUNNER_TEMP/android-cli.zip"
+          curl.exe -fsSL --retry 3 -o $archive https://dl.google.com/android/repository/commandlinetools-win-15859902_latest.zip
+          if ($LASTEXITCODE -ne 0) { throw 'Android CLI download failed' }
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne '90ae805d20434428bffcb699c290860f19bb5f66a67e6b330067e3de801fb04a') { throw 'Android CLI digest mismatch' }
+          Expand-Archive $archive "$env:ANDROID_HOME/cmdline-tools/22.0"
+          $manager = "$env:ANDROID_HOME/cmdline-tools/22.0/cmdline-tools/bin/sdkmanager.bat"
+          1..30 | ForEach-Object { 'y' } | & $manager --sdk_root=$env:ANDROID_HOME --licenses | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'SDK license setup failed' }
+          & $manager --sdk_root=$env:ANDROID_HOME "platforms;android-36" "build-tools;36.0.0"
           if ($LASTEXITCODE -ne 0) { throw 'SDK installation failed' }
           $properties = Get-Content "$env:ANDROID_HOME/platforms/android-36/source.properties" -Raw
           if ($properties -notmatch 'Pkg.Revision=2(?:\r?\n|$)') { throw 'Android platform revision drifted' }
+          "ANDROID_HOME=$env:ANDROID_HOME" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "ANDROID_SDK_ROOT=$env:ANDROID_HOME" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
       - name: Build and test
         shell: pwsh
         run: |
