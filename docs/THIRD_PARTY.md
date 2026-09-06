@@ -1,5 +1,12 @@
 # Third-party resources
 
+QR rendering/decoding: ZXing core 3.5.4, https://github.com/zxing/zxing.
+In-app camera scanning: ZXing Android Embedded 4.3.0,
+https://github.com/journeyapps/zxing-android-embedded/tree/v4.3.0.
+Its AndroidX runtime dependency is explicitly pinned to core 1.13.1.
+These libraries are Apache-2.0 licensed; preserve their packaged notices.
+All new resolved artifacts are included in Gradle locks and SHA-256 verification.
+
 Meshtastic Android 2.7.13 is pinned at commit
 7a68802bc2b8cdb9c76a77f2093aac130fc8ec05. Its API/model/proto artifacts
 are GPL-licensed; preserve upstream notices and evaluate corresponding-source
