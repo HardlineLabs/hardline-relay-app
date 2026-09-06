@@ -56,4 +56,3 @@ IPC authenticity and authenticated/replay-resistant application messages are des
 No channel keys, QR payloads, coordinates, or packet bodies belong in routine logs.
 The plugin holds channel configuration transiently for change detection, never
 stores it, and never writes radio settings or exports configuration services.
-
