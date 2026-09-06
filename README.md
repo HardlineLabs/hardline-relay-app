@@ -15,4 +15,6 @@ settings are preserved. No backend, CoT forwarding or ATAK integration is includ
 
 Versioned status vectors live in [protocol](protocol/README.md). The companion
 [ATAK plugin repository](https://github.com/HardlineLabs/hardline-relay-atak-plugin)
-has a standalone status harness and a local SDK-host plugin scaffold.
+has a standalone status harness and an in-progress SDK-host PLI experiment.
+The plugin owns sending intervals and freshness/receipts; this app's installed
+0.2.0-dev channel-provisioning behavior is unchanged by the PLI work.

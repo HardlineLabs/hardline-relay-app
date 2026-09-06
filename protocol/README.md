@@ -10,9 +10,9 @@ not proof that another peer can receive traffic. Never derive mesh state from TA
 server state. "simulated" must be obvious in every display.
 
 The initial apps bind independently to Meshtastic Android 2.7.13 IMeshService.
-Relay owns radio configuration (future implementation). The ATAK adapter owns display.
+Relay owns radio configuration. The ATAK adapter owns PLI transmission and display.
 No exported Hardline configuration service, shared key file, or unprotected
 configuration broadcast is introduced.
 
-A future CoT wire format needs a separate versioned contract and airtime budget.
-No custom on-air protocol is committed by this scaffold.
+The private [PLI experiment](pli-v1.md) defines compact position/receipt packets,
+freshness semantics, bounds, and the current lab-only trust limitations.

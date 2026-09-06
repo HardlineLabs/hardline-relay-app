@@ -30,6 +30,12 @@ muting and foreground/background behavior; Relay does not manufacture a receipt.
 
 ## Next development work
 
+The companion ATAK plugin has an in-progress PLI experiment using a channel
+created here. PLI controls (manual, 10s, 30s, Off), freshness display and receipts
+belong in the plugin, not Relay. [The shared contract](../protocol/pli-v1.md)
+defines the experiment; the plugin's product docs own its acceptance status.
+Relay itself does not forward PLI or implement a new inter-app bridge service.
+
 Extend failure recovery, test power-cycle/Bluetooth-loss cases, and design the
 remaining simple configuration UI. Encryption-off/public-forwarding controls,
 channel deletion and persistent delivery history are not implemented in Relay.
