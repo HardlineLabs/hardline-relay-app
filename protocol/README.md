@@ -16,3 +16,5 @@ configuration broadcast is introduced.
 
 The private [PLI experiment](pli-v1.md) defines compact position/receipt packets,
 freshness semantics, bounds, and the current lab-only trust limitations.
+The [point experiment](point-v1.md) adds addressed single-packet map points and
+separate point receipts through ATAK's normal contact Send flow.

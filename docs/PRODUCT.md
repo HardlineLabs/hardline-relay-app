@@ -35,6 +35,8 @@ created here. PLI controls (manual, 10s, 30s, Off), freshness display and receip
 belong in the plugin, not Relay. [The shared contract](../protocol/pli-v1.md)
 defines the experiment; the plugin's product docs own its acceptance status.
 Relay itself does not forward PLI or implement a new inter-app bridge service.
+The [point contract](../protocol/point-v1.md) extends the plugin's experiment with
+explicit ATAK contact sends. Relay owns the contract snapshot; app behavior is unchanged.
 
 Extend failure recovery, test power-cycle/Bluetooth-loss cases, and design the
 remaining simple configuration UI. Encryption-off/public-forwarding controls,
