@@ -1,8 +1,18 @@
 # Development
 
-Run commands from this repository in PowerShell 7. The workstation toolchain is
-owned by the umbrella workspace's operations/relay-workstation.md and
-tools/bootstrap-relay.ps1. Use that bootstrap on a replacement machine.
+Use PowerShell 7, Microsoft JDK 17.0.20.1+1, Android platform 36 revision 2,
+build-tools 36.0.0 and Python 3.13.15. Gradle's checked-in wrapper owns its version.
+Set JAVA_HOME and ANDROID_HOME (or an untracked local.properties SDK path), then run:
+
+```powershell
+./gradlew.bat :core:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --console=plain
+python -m unittest discover -s tools -p 'test_*.py'
+```
+
+The workstation convenience scripts use HARDLINE_RELAY_DEV, defaulting to
+`$env:USERPROFILE/HardlineRelayDev`, with `tools/jdk-17.0.20.1+1` and `AndroidSdk`
+inside it. They do not download the restricted ATAK SDK. The workflow under
+.github/workflows/validate.yml records the public CI toolchain and download hashes.
 
 ## Daily loop
 
@@ -35,28 +45,34 @@ SwiftShader renders it successfully. `-Graphics host` is an optional alternative
 for other workloads, not the verified ATAK baseline.
 Only one Hardline emulator uses port 5554. An already-running instance is reused.
 
-## Private-channel hardware acceptance
+## Offline profile and radio acceptance
 
-Baseline: Meshtastic Android 2.7.13 (29320069), Heltec V3 firmware 2.7.15.567b8ea.
-Two Moto G Play 2024 / Android 14 phones have passed creation, optical QR import,
-radio read-back and a standard test text in each direction, including Meshtastic
-notifications while its UI is backgrounded. This is nearby integration, not a range
-or reliability certification. USB requires Motorola's OEM driver on this workstation.
+Baseline: two Moto G Play 2024 / Android 14 phones, Meshtastic Android 2.7.13
+(29320069), Heltec V3 firmware 2.7.15.567b8ea, US LONG_FAST / seven hops.
+Nearby acceptance is distinct from range or reliability certification.
 
-1. Pair one radio per phone in Meshtastic and install this APK on both.
-2. In Relay, create a uniquely named private channel and wait for verification.
-3. Show its secret QR. On the other phone choose Scan, approve camera permission,
-   scan optically and confirm Add. Do not capture the QR in screenshots/logs.
-4. Keep Meshtastic backgrounded; tap Send test once in Relay on each phone.
-   Confirm the token in the other phone's Meshtastic notification/conversation.
-5. Refresh/restart Relay and confirm the channel survives and RF settings match
-   their original values. Do not clear unrelated channels for a test.
+1. Pair one radio per phone in Meshtastic. Install Relay on both. Disable Wi-Fi and
+   mobile data for the operational test, retaining Bluetooth and real GPS.
+2. Create a protected separate-frequency profile. Scan its QR optically on the
+   other phone. Require Saved/Locked and no new installed radio channel.
+3. Restart Relay; require the saved profile to survive. Try a wrong passphrase;
+   require rejection with no radio write. Activate with the correct passphrase.
+4. Observe sending/restart/reconnect/verification on both radios. Require Active
+   only after matching read-back; inspect unchanged primary, other keys and hops.
+5. Create/scan a public-mesh-compatible profile and activate both. Require slot 20,
+   private keys and working PLI/points. Switch back through the plugin dropdown;
+   require Relay activation and the previous profile's frequency on both.
+6. Interrupt connectivity during a change. Require unconfirmed/paused, then
+   explicitly activate again to recover. Do not clear unrelated radio channels.
+7. Run the companion plugin's physical PLI/point acceptance. Optional Relay text
+   tests require the matching token in the other phone's Meshtastic conversation;
+   local submission alone is not receipt.
 
-Automated tests use non-production keys/fake services; they do not transmit RF.
-They cover QR image decode, malformed/import rejection, slot planning/conflicts,
-preservation, firmware/disconnection guards, read-back timeout and text/hop mapping.
-Android tests cover startup/recreation and scanner runtime/QR rendering dependencies.
-Actual camera alignment and notification delivery remain hardware acceptance checks.
+JVM tests cover package bounds/tampering, wrong passphrases, supported RF slots,
+channel preservation, read-back failure and text/hop mapping. Android tests cover
+startup/recreation, QR encode/decode and encrypted Keystore-backed storage/provider
+behavior on physical phones. Camera alignment and real radio reboot/recovery are
+hardware checks. Never save actual channel QR images, keys or packet logs.
 
 ## Build outputs
 
@@ -94,4 +110,5 @@ umbrella workspace, with links into these human-maintained documents.
 
 Work from current origin/develop on feature/<name>. Validate and push coherent
 commits, then merge through develop. main is reserved for an authorized release.
-There is no publication workflow in this scaffold.
+CI validates main, develop and feature branches. Source publication does not publish
+a production-signed APK or redistribute the ATAK SDK.

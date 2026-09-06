@@ -10,7 +10,7 @@ All new resolved artifacts are included in Gradle locks and SHA-256 verification
 Meshtastic Android 2.7.13 is pinned at commit
 7a68802bc2b8cdb9c76a77f2093aac130fc8ec05. Its API/model/proto artifacts
 are GPL-licensed; preserve upstream notices and evaluate corresponding-source
-obligations before distributing linked binaries. Current repositories are private.
+obligations before distributing linked binaries. This repository publishes Hardline source, not upstream SDK assets or binaries.
 
 Reference: https://github.com/meshtastic/Meshtastic-Android/tree/v2.7.13
 Protobuf submodule: https://github.com/meshtastic/protobufs/tree/44298d374fd83cfbc36fdb76c6f966e980cadd93

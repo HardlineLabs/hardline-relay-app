@@ -18,7 +18,10 @@ class MeshChannelClientTest {
         var connected = true
         var version = "2.7.15.567b8ea"
         var channels = ChannelSet(settings = listOf(ChannelSettings(psk = byteArrayOf(1).toByteString())))
-        val config = LocalConfig(lora = Config.LoRaConfig(hop_limit = 7))
+        var config = LocalConfig(lora = Config.LoRaConfig(hop_limit = 7, use_preset = true,
+            region = Config.LoRaConfig.RegionCode.US, modem_preset = Config.LoRaConfig.ModemPreset.LONG_FAST))
+        var configWrites = 0
+        var pendingConfig: Config? = null
         var pending: Channel? = null
         var writes = 0
         var reads = 0
@@ -46,6 +49,14 @@ class MeshChannelClientTest {
                         channels = channels.copy(settings = settings)
                     }
                     reads++
+                    null
+                }
+                "setConfig" -> { pendingConfig = Config.ADAPTER.decode(args!![0] as ByteArray); configWrites++; null }
+                "getRemoteConfig" -> {
+                    if (!dropReadBack) pendingConfig?.let {
+                        config = config.copy(lora = it.lora)
+                        channels = channels.copy(lora_config = it.lora)
+                    }
                     null
                 }
                 "send" -> { sent = args!![0] as DataPacket; null }
@@ -108,5 +119,36 @@ class MeshChannelClientTest {
         assertTrue(radio.sent!!.text!!.startsWith("Hardline Relay test "))
         assertThrows(IllegalStateException::class.java) { MeshChannelClient(radio.service).send(0, wanted, 123) }
         assertThrows(IllegalStateException::class.java) { MeshChannelClient(radio.service).send(1, wanted, 999) }
+    }
+    @Test fun activationVerifiesFrequencyAndPreservesOtherSettings() {
+        val radio = FakeRadio()
+        radio.config = radio.config.copy(lora = radio.config.lora!!.copy(override_frequency = 906.875f))
+        val before = radio.config
+        val profile = ChannelProfile.Open(ChannelProvisioning.create("Backup"), 37)
+        val stages = mutableListOf<String>()
+        val (_, after) = MeshChannelClient(radio.service).activate(profile, 123) { stages.add(it) }
+        assertEquals(37, after.config.lora!!.channel_num)
+        assertEquals(0f, after.config.lora!!.override_frequency)
+        assertEquals(before.lora!!.copy(channel_num = 37, override_frequency = 0f), after.config.lora)
+        assertEquals(1, radio.configWrites)
+        assertTrue(stages.any { it.contains("Waiting") })
+        assertTrue(stages.any { it.contains("Verifying") })
+    }
+    @Test fun rejectedRegionAndNodeNeverWrite() {
+        val radio = FakeRadio()
+        val profile = ChannelProfile.Open(ChannelProvisioning.create("Backup"), 37)
+        assertThrows(Exception::class.java) { MeshChannelClient(radio.service).activate(profile, 999) {} }
+        radio.config = radio.config.copy(lora = radio.config.lora!!.copy(region = Config.LoRaConfig.RegionCode.EU_868))
+        assertThrows(Exception::class.java) { MeshChannelClient(radio.service).activate(profile, 123) {} }
+        assertEquals(0, radio.writes); assertEquals(0, radio.configWrites)
+    }
+    @Test fun lostFrequencyReadBackNeverClaimsActive() {
+        val radio = FakeRadio()
+        val profile = ChannelProfile.Open(ChannelProvisioning.create("Backup"), 37)
+        radio.channels = radio.channels.copy(settings = radio.channels.settings + profile.settings)
+        radio.dropReadBack = true
+        assertThrows(IllegalStateException::class.java) { MeshChannelClient(radio.service, 20, 30).activate(profile, 123) {} }
+        assertEquals(1, radio.configWrites)
+        assertEquals(0, radio.config.lora!!.channel_num)
     }
 }
