@@ -63,6 +63,11 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         window.statusBarColor = Color.rgb(13, 21, 27); window.navigationBarColor = Color.rgb(13, 21, 27)
         store = ProfileStore(this)
+        // The plugin runs as ATAK's UID; its own manifest cannot change host visibility.
+        runCatching {
+            grantUriPermission("com.atakmap.app.civ", android.net.Uri.parse("content://com.hardlinelabs.relay.profiles/profiles"),
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+        } // Relay also works independently when ATAK is not installed.
         val layout = column().apply { setPadding(dp(20), dp(24), dp(20), dp(24)); setBackgroundColor(Color.rgb(13, 21, 27)) }
         text(layout, "HARDLINE LABS", 12f, accent).apply { letterSpacing = 0.18f; typeface = Typeface.DEFAULT_BOLD }
         text(layout, "Relay", 32f).typeface = Typeface.DEFAULT_BOLD

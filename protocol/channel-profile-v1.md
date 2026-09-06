@@ -56,6 +56,14 @@ id, name, locked, activation, node, index, slot, fingerprint and switching colum
 Fingerprint is SHA-256 of the encoded installed ChannelSettings; no PSK, passphrase
 or QR data is exported. Cursor extras also carry switching, including when no
 profiles remain, so a removed package cannot silently release an unverified change. Mutation methods are unsupported. Labels are not secrets.
+
+On launch, Relay grants the CIV host read-only, persistable URI access to this
+metadata URI. The loaded plugin queries as the host and retains that grant. Its
+separate APK manifest cannot add package queries to the ATAK host. If the provider
+is unavailable, the plugin pauses sending and prompts opening Relay to reconnect;
+it must not interpret a missing cursor as an empty saved-profile collection.
+See Android's [automatic package visibility](https://developer.android.com/training/package-visibility/automatic)
+and [URI grants](https://developer.android.com/reference/android/content/Context#grantUriPermission(java.lang.String,%20android.net.Uri,%20int)).
 Plugin launches the explicit Relay MainActivity with a profileId to present its
 activation screen. An intent alone does not write settings or bypass a passphrase.
 A new successful activation is selected only after matching the live radio node,
