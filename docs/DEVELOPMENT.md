@@ -35,6 +35,29 @@ SwiftShader renders it successfully. `-Graphics host` is an optional alternative
 for other workloads, not the verified ATAK baseline.
 Only one Hardline emulator uses port 5554. An already-running instance is reused.
 
+## Private-channel hardware acceptance
+
+Baseline: Meshtastic Android 2.7.13 (29320069), Heltec V3 firmware 2.7.15.567b8ea.
+Two Moto G Play 2024 / Android 14 phones have passed creation, optical QR import,
+radio read-back and a standard test text in each direction, including Meshtastic
+notifications while its UI is backgrounded. This is nearby integration, not a range
+or reliability certification. USB requires Motorola's OEM driver on this workstation.
+
+1. Pair one radio per phone in Meshtastic and install this APK on both.
+2. In Relay, create a uniquely named private channel and wait for verification.
+3. Show its secret QR. On the other phone choose Scan, approve camera permission,
+   scan optically and confirm Add. Do not capture the QR in screenshots/logs.
+4. Keep Meshtastic backgrounded; tap Send test once in Relay on each phone.
+   Confirm the token in the other phone's Meshtastic notification/conversation.
+5. Refresh/restart Relay and confirm the channel survives and RF settings match
+   their original values. Do not clear unrelated channels for a test.
+
+Automated tests use non-production keys/fake services; they do not transmit RF.
+They cover QR image decode, malformed/import rejection, slot planning/conflicts,
+preservation, firmware/disconnection guards, read-back timeout and text/hop mapping.
+Android tests cover startup/recreation and scanner runtime/QR rendering dependencies.
+Actual camera alignment and notification delivery remain hardware acceptance checks.
+
 ## Build outputs
 
 - app/build/outputs/apk/debug/app-debug.apk

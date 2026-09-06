@@ -10,8 +10,8 @@ android {
         applicationId = "com.hardlinelabs.relay"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0-dev"
+        versionCode = 2
+        versionName = "0.2.0-dev"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
@@ -24,6 +24,12 @@ kotlin { jvmToolchain(17) }
 dependencies {
     implementation(project(":core"))
     implementation("com.github.meshtastic.Meshtastic-Android:meshtastic-android-api:v2.7.13")
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+    implementation("com.google.zxing:core:3.5.4")
+    implementation("androidx.core:core:1.13.1")
+    constraints {
+        implementation("androidx.tracing:tracing:1.1.0") { because("Preserve the existing instrumentation dependency version") }
+    }
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test:core:1.6.1")

@@ -45,7 +45,7 @@ jobs:
       - name: Build and test
         shell: pwsh
         run: |
-          ./gradlew.bat :core:test :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --console=plain
+          ./gradlew.bat :core:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --console=plain
           if ($LASTEXITCODE -ne 0) { throw 'Gradle checks failed' }
           $env:PYTHONDONTWRITEBYTECODE = '1'
           python -m unittest discover -s tools -p 'test_*.py'
