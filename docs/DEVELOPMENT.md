@@ -18,10 +18,11 @@ inside it. They do not download the restricted ATAK SDK. The workflow under
 
 The radio observatory is implemented by RadioMonitorService (one serial worker for
 capture/probes), RadioEvidence/RadioSurvey (pure evidence and scheduling rules),
-ObservationStore (bounded metadata-only database), and ObservatoryUi/RadioCharts
-(native Android views). MainActivity retains profile operations. No new runtime
-dependencies or protocol changes are required. Version 0.5 keeps all compatibility
-pins below.
+ObservationStore (bounded metadata-only database), and persistent ObservatoryUi
+pages. PacketFeed owns recycled packet rows, NodeInspector owns live test controls,
+and SatelliteMap owns a restricted WebView running packaged Leaflet. RadioCharts
+uses fixed time buckets and scale. MainActivity retains profile operations. Version
+0.6 adds packaged Leaflet 1.9.4; Android/firmware compatibility pins stay unchanged.
 
 ```powershell
 .\tools\check.ps1
@@ -56,6 +57,25 @@ Only one Hardline emulator uses port 5554. An already-running instance is reused
 
 ### Radio observatory acceptance
 
+The ordinary Android suite includes synthetic packet-list tests (expansion height,
+new-arrival buffering, stable scroll offsets), persistent-page checks and isolated
+live inspector controls. These tests do not transmit. Core tests verify packet/status
+association and that relayed/MQTT/stale observations do not qualify an unlocated
+origin as a direct candidate.
+
+For UI acceptance on the selected phone:
+
+- Scroll and expand Activity cards through multiple one-second refreshes; check that
+  To/From, status, size and hops stay glanceable. No EVENT/STATUS-only cards appear.
+- Pan/zoom Map, open a marker, return, and verify the viewport stays put. Check imagery
+  and labels load; marker actions open the same live inspector as Mesh. Test overlapping
+  markers and the unlocated candidate panel using synthetic data when needed.
+- Verify an offline map-unavailable state, tile-error/reload behavior, and that capture
+  and node tests do not depend on imagery. GPS coordinates must never be transmitted.
+- From a node inspector, explicitly start a bounded test and observe its progress and
+  Stop behavior in place. Do not send public channel chat. Pause RF checks if an abrupt
+  signal anomaly suggests the outdoor radio needs a placement check.
+
 1. Explicitly select the single authorized device with `--serial SERIAL --count 1`
    for installation and ordinary instrumentation. The public-mesh test is skipped
    unless its opt-in instrumentation argument is present.
@@ -65,7 +85,7 @@ Only one Hardline emulator uses port 5554. An already-running instance is reused
 3. On a compatible mesh, inspect incoming cards without opening message content.
    Check packet type, source, signal and unknown fields. Cached nodes must remain
    distinguishable from new RF observations. Inspect Mesh, Activity, all filters,
-   paused scrolling, node details and HARDLINE ATAK navigation.
+   buffered arrivals, node details and HARDLINE ATAK navigation.
 4. Run Check my connection or Test this node. Inspect the timeline for only
    directed REPLY_APP/native telemetry submissions. Distinguish routing ACKs,
    destination ACKs, passive RF receptions, errors and unanswered checks. Confirm

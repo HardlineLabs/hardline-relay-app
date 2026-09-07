@@ -42,9 +42,34 @@ data class RadioNode(
     val rssi: Int? = null,
     val snr: Float? = null,
     val hops: Int? = null,
+    val positionPrecision: Int? = null,
+    val positionSource: String = "Reported position",
 )
 
 object RadioEvidence {
+    /** Status-only notifications update an existing submission; they never invent a packet. */
+    fun packets(events: List<RadioEvent>): List<RadioEvent> {
+        val statuses = events.filter { it.direction == "STATUS" }.groupBy { it.packetId }
+        return events.filter { it.direction == "TX" || it.direction == "RX" }.map { e ->
+            if (e.direction != "TX" || e.packetId == 0) e else {
+                val status = statuses[e.packetId]?.lastOrNull {
+                    it.time - e.time in 0..180_000 && it.context == e.context && it.survey == e.survey &&
+                        (it.destination.isEmpty() || it.destination == e.destination)
+                }
+                if (status == null) e else e.copy(outcome = status.outcome, elapsed = status.elapsed)
+            }
+        }
+    }
+
+    fun significantUnlocated(nodes: List<RadioNode>, events: List<RadioEvent>, local: Int,
+                             context: String, started: Long, now: Long): List<RadioNode> {
+        val direct = events.filter { it.direction == "RX" && it.transport == "LoRa" && it.hops == 0 &&
+            it.context == context && it.time >= started && now - it.time in 0..600_000 &&
+            it.snr != null && it.snr >= -7.5f && it.rssi != null && it.rssi >= -115 }.groupingBy { it.source }.eachCount()
+        return ranked(nodes.filter { it.number != local && (it.latitude == null || it.longitude == null) &&
+            ((direct[it.id] ?: 0) >= 2 || (it.acknowledged > 0 && now - it.acknowledged in 0..600_000)) }, now)
+    }
+
     fun hops(start: Int, remaining: Int): Int? =
         if (start in 1..7 && remaining in 0..start) start - remaining else null
 

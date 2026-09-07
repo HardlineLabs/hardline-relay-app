@@ -116,7 +116,9 @@ class MainActivity : Activity() {
     override fun onResume() { super.onResume(); if (::observatory.isInitialized) observatory.resume(); if (mapGpsRequested) usePhoneGps(); if (::savedList.isInitialized) { renderSaved(); if (service != null) refresh() } }
     override fun onPause() { if (::observatory.isInitialized) observatory.pause(); getSystemService(LocationManager::class.java).removeUpdates(mapLocation); super.onPause() }
     override fun onStop() { secretDialog?.dismiss(); secretDialog = null; super.onStop() }
-    override fun onDestroy() { disconnect(); worker.shutdownNow(); super.onDestroy() }
+    override fun onDestroy() { if (::observatory.isInitialized) observatory.destroy(); disconnect(); worker.shutdownNow(); super.onDestroy() }
+    @Deprecated("Legacy Android back navigation")
+    override fun onBackPressed() { if (!observatory.back()) super.onBackPressed() }
     private fun disconnect() { if (bound) unbindService(connection); bound = false; service = null }
     private fun startCapture() {
         val required = buildList {

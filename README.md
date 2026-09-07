@@ -1,13 +1,14 @@
 # Hardline Relay
 
-An offline radio observatory for Meshtastic, with private-channel management and a
+A radio observatory for Meshtastic, with private-channel management and a
 companion ATAK plugin.
 A Hardline Labs hobby project built for fun and experimentation. **Work in progress**;
 nearby lab testing does not make this a certified or mission-critical system.
 
 Radio explains the connected device's condition and runs bounded, addressed mesh
-checks. Mesh puts observed and cached nodes on an offline geographic plot. Activity
-turns exposed packet metadata into a readable timeline, filters, and traffic insights.
+checks. Mesh offers live node testing, and Map places reported nodes on interactive
+satellite/aerial imagery. Activity presents expandable TX/RX packet cards with
+status, size, and hops.
 Capture never starts a survey automatically, and diagnostics never send public chat.
 
 HARDLINE ATAK contains the existing contingency-channel workflow:
@@ -17,8 +18,9 @@ Use private encryption on public-mesh-compatible RF settings, or choose a separa
 frequency slot. Relay shows radio configuration, restart, reconnect and verification
 progress instead of treating a settings submission as success.
 
-All operational features work offline using Bluetooth, LoRa and phone GPS. No account,
-backend, Wi-Fi or mobile data is required. Initial software installation is separate.
+Radio checks, packet capture and channel profiles work offline using Bluetooth and
+LoRa. The optional satellite/aerial map requires internet; detailed USGS imagery is
+primarily U.S. coverage. No account or API key is required. Phone GPS stays local.
 
 - [Product behavior and limits](docs/PRODUCT.md)
 - [Build and hardware checks](docs/DEVELOPMENT.md)
