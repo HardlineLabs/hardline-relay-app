@@ -9,6 +9,13 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.IBinder
 import android.os.SystemClock
+import android.os.Build
+import android.Manifest
+import android.content.pm.PackageManager
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import com.hardlinelabs.relay.core.RadioEvent
 import android.text.InputType
 import android.view.View
 import android.view.WindowManager
@@ -27,6 +34,19 @@ class MainActivity : Activity() {
     private lateinit var savedList: LinearLayout
     private lateinit var radioList: LinearLayout
     private lateinit var store: ProfileStore
+    private lateinit var observatory: ObservatoryUi
+    private var pendingExport: List<RadioEvent> = emptyList()
+    private var mapGpsRequested = false
+    private val mapLocation = object : LocationListener {
+        override fun onLocationChanged(location: Location) {
+            if (location.isFromMockProvider) return
+            RadioMonitorService.instance?.phonePosition(location.latitude, location.longitude, location.time)
+        }
+        override fun onProviderEnabled(provider: String) = Unit
+        override fun onProviderDisabled(provider: String) = Unit
+        @Deprecated("Legacy Android callback")
+        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
+    }
     private val worker = Executors.newSingleThreadExecutor()
     private val controls = mutableListOf<Button>()
     private var service: IMeshService? = null
@@ -69,8 +89,6 @@ class MainActivity : Activity() {
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
         } // Relay also works independently when ATAK is not installed.
         val layout = column().apply { setPadding(dp(20), dp(24), dp(20), dp(24)); setBackgroundColor(Color.rgb(13, 21, 27)) }
-        text(layout, "HARDLINE LABS", 12f, accent).apply { letterSpacing = 0.18f; typeface = Typeface.DEFAULT_BOLD }
-        text(layout, "Relay", 32f).typeface = Typeface.DEFAULT_BOLD
         text(layout, "Private channels. Ready when you need them.", 14f, muted)
         val connectionCard = card(layout)
         status = text(connectionCard, "Connecting to radio…", 16f)
@@ -87,15 +105,48 @@ class MainActivity : Activity() {
         text(layout, "ON THIS RADIO", 12f, accent)
         radioList = column(); layout.addView(radioList)
         button(layout, "Open Meshtastic") { packageManager.getLaunchIntentForPackage("com.geeksville.mesh")?.let(::startActivity) }
-        setContentView(ScrollView(this).apply { isFillViewport = true; setBackgroundColor(Color.rgb(13,21,27)); addView(layout) })
+        val atak = ScrollView(this).apply { isFillViewport = true; setBackgroundColor(Color.rgb(13,21,27)); addView(layout) }
+        observatory = ObservatoryUi(this, atak, ::startCapture, ::exportMetadata, ::usePhoneGps)
+        setContentView(observatory)
         pendingId = intent.getStringExtra("profileId")
+        if (pendingId != null) observatory.showAtak()
         renderSaved(); bindMesh()
     }
-    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); pendingId = intent.getStringExtra("profileId"); refresh() }
-    override fun onResume() { super.onResume(); if (::savedList.isInitialized) { renderSaved(); if (service != null) refresh() } }
+    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); pendingId = intent.getStringExtra("profileId"); if (pendingId != null) observatory.showAtak(); refresh() }
+    override fun onResume() { super.onResume(); if (::observatory.isInitialized) observatory.resume(); if (mapGpsRequested) usePhoneGps(); if (::savedList.isInitialized) { renderSaved(); if (service != null) refresh() } }
+    override fun onPause() { if (::observatory.isInitialized) observatory.pause(); getSystemService(LocationManager::class.java).removeUpdates(mapLocation); super.onPause() }
     override fun onStop() { secretDialog?.dismiss(); secretDialog = null; super.onStop() }
     override fun onDestroy() { disconnect(); worker.shutdownNow(); super.onDestroy() }
     private fun disconnect() { if (bound) unbindService(connection); bound = false; service = null }
+    private fun startCapture() {
+        val required = buildList {
+            if (Build.VERSION.SDK_INT >= 31) add(Manifest.permission.BLUETOOTH_CONNECT)
+            if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
+        }.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+        if (required.isNotEmpty()) { requestPermissions(required.toTypedArray(), 51); return }
+        startForegroundService(Intent(this, RadioMonitorService::class.java))
+    }
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 51 && grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) startCapture()
+        if (requestCode == 53 && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) usePhoneGps()
+    }
+    private fun usePhoneGps() {
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 53)
+            return
+        }
+        mapGpsRequested = true
+        getSystemService(LocationManager::class.java).requestLocationUpdates(LocationManager.GPS_PROVIDER, 10_000, 5f, mapLocation)
+        Toast.makeText(this, "Waiting for phone GPS. Used only for the local map; never transmitted.", Toast.LENGTH_LONG).show()
+    }
+    private fun exportMetadata(events: List<RadioEvent>) {
+        pendingExport = events.toList()
+        startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE); type = "application/x-ndjson"
+            putExtra(Intent.EXTRA_TITLE, "relay-metadata.jsonl")
+        }, 52)
+    }
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) { service = IMeshService.Stub.asInterface(binder); refresh() }
         override fun onServiceDisconnected(name: ComponentName) { service = null; snapshot = null; status.text = "Radio unavailable. Reconnect in Meshtastic."; renderRadio() }
@@ -182,6 +233,7 @@ class MainActivity : Activity() {
         val dialog = AlertDialog.Builder(this).setTitle("Activate ${pkg.name}").setView(layout)
             .setNegativeButton("Cancel", null).setPositiveButton("Activate", null).create()
         dialog.setOnShowListener { dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            RadioMonitorService.instance?.stopSurvey("Profile activation requested")
             val pass = if (pkg.locked) password.text.toString().toCharArray() else null
             task("Unlocking ${pkg.name}…") {
                 val opened = try { ChannelProfile.open(pkg, pass) }
@@ -203,6 +255,16 @@ class MainActivity : Activity() {
     @Suppress("DEPRECATION")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 52) {
+            val events = pendingExport; pendingExport = emptyList()
+            if (resultCode == RESULT_OK) data?.data?.let { uri -> worker.execute {
+                val result = runCatching { contentResolver.openOutputStream(uri, "wt")!!.bufferedWriter().use { out ->
+                    events.forEach { out.write(ObservationStore.encode(it).toString()); out.newLine() }
+                } }
+                runOnUiThread { Toast.makeText(this, if (result.isSuccess) "Metadata exported" else "Export failed", Toast.LENGTH_LONG).show() }
+            } }
+            return
+        }
         val content = IntentIntegrator.parseActivityResult(requestCode, resultCode, data)?.contents ?: return
         task("Saving scanned channel…") {
             val pkg = ChannelProfile.parse(content)

@@ -16,6 +16,13 @@ inside it. They do not download the restricted ATAK SDK. The workflow under
 
 ## Daily loop
 
+The radio observatory is implemented by RadioMonitorService (one serial worker for
+capture/probes), RadioEvidence/RadioSurvey (pure evidence and scheduling rules),
+ObservationStore (bounded metadata-only database), and ObservatoryUi/RadioCharts
+(native Android views). MainActivity retains profile operations. No new runtime
+dependencies or protocol changes are required. Version 0.5 keeps all compatibility
+pins below.
+
 ```powershell
 .\tools\check.ps1
 .\tools\devices.ps1 list
@@ -46,6 +53,45 @@ for other workloads, not the verified ATAK baseline.
 Only one Hardline emulator uses port 5554. An already-running instance is reused.
 
 ## Offline profile and radio acceptance
+
+### Radio observatory acceptance
+
+1. Explicitly select the single authorized device with `--serial SERIAL --count 1`
+   for installation and ordinary instrumentation. The public-mesh test is skipped
+   unless its opt-in instrumentation argument is present.
+2. Open Relay, Start capture and grant Bluetooth/notification permissions. Verify
+   current RF settings, connection state, cached metric age and an ongoing capture
+   notification. No diagnostic TX events should appear until a survey is started.
+3. On a compatible mesh, inspect incoming cards without opening message content.
+   Check packet type, source, signal and unknown fields. Cached nodes must remain
+   distinguishable from new RF observations. Inspect Mesh, Activity, all filters,
+   paused scrolling, node details and HARDLINE ATAK navigation.
+4. Run Check my connection or Test this node. Inspect the timeline for only
+   directed REPLY_APP/native telemetry submissions. Distinguish routing ACKs,
+   destination ACKs, passive RF receptions, errors and unanswered checks. Confirm
+   that the survey finishes and honors Stop. Never use public-channel text tests.
+5. Background/reopen Relay while capture is running; verify collection continues.
+   Stop capture, restart it, and verify the gap and persisted metadata. Verify that
+   service/process restart does not resume a survey or reuse current node evidence.
+6. Use the optional phone-GPS map origin only with location permission. It must
+   never call Meshtastic position-sharing APIs. Inspect map scale, position ages
+   and list fallback. Verify metadata export contains no packet body or keys.
+7. Repeat the existing profile storage/QR/recreation tests. Activation must stop
+   diagnostics. Do not modify or clear installed public-mesh keys as a test shortcut.
+
+Opt-in hardware acceptance (after installing both debug and instrumentation APKs):
+
+```powershell
+adb -s SERIAL shell am instrument -w -e class com.hardlinelabs.relay.PublicMeshAcceptanceTest -e publicMesh true com.hardlinelabs.relay.test/androidx.test.runner.AndroidJUnitRunner
+# Adding -e survey true explicitly enables one bounded radio survey.
+```
+
+The test reports aggregate counts only, never node identities, positions, payloads
+or channel secrets. Instrumentation exits can kill the target process; reopen Relay
+and explicitly Start capture afterward. Deterministic tests cover timing, deadline,
+unknown hops, late statuses, no-broadcast/no-chat probes, and metadata retention.
+
+### Profile acceptance
 
 Baseline: two Moto G Play 2024 / Android 14 phones, Meshtastic Android 2.7.13
 (29320069), Heltec V3 firmware 2.7.15.567b8ea, US LONG_FAST / seven hops.
