@@ -78,4 +78,11 @@ class ProfileStore(private val context: Context) {
         write(root)
     }
     fun clearActive() = synchronized(lock) { val root = read(); root.remove("active"); root.put("switching", true); write(root) }
+    fun removalVerified(ids: Set<String>) = synchronized(lock) {
+        val root = read()
+        val array = root.getJSONArray("profiles")
+        root.put("profiles", JSONArray((0 until array.length()).map { array.getString(it) }
+            .filter { ChannelProfile.parse(it).id !in ids }))
+        root.remove("active"); root.put("switching", false); write(root)
+    }
 }

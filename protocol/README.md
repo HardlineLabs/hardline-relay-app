@@ -7,6 +7,7 @@ Run tools/compare-contract.ps1 before integrating paired changes.
   radio activation, progress and the read-only app/plugin metadata boundary.
 - [PLI](pli-v1.md): compact positions, bounded receipts and honest freshness.
 - [Points](point-v1.md): explicit ATAK contact sends and recipient receipts.
+- [Chat](chat-v1.md): ATAK contact conversations over the private Relay channel.
 - [Status vectors](status-v1.tsv): initial standalone harness fixtures.
 
 Radio connectivity, observed peer communication and TAK server connectivity are

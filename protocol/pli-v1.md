@@ -42,14 +42,25 @@ clock and receipt traffic. Stale threshold is max(60 seconds, 3 × announced int
 Display sender fix time and local receipt time separately. A stale marker remains
 last-known; recent reception is not a guarantee the peer is still online.
 Duplicates do not refresh age or cause additional receipts. Manual sender mode
-must remain visible. Missing receipt after 60 seconds is unconfirmed, not proven loss.
+must remain visible. A missing receipt at the selected ACK deadline is unconfirmed, not proven loss.
 Late receipts are accepted while the token remains in the five-minute history.
 
 Automatic transmission defaults Off and stops on unload, disconnect, or detected
 radio/channel changes. Select a channel explicitly, or finish a verified activation in Relay; neither enables automatic sending. No catch-up bursts,
-automatic retries, or forwarding of normal TAK-server traffic. At most 32 peers,
+replays of old coordinates, or forwarding of normal TAK-server traffic. At most 32 peers,
 32 outgoing tokens, 32 receipts per token, 256 duplicate IDs, and four queued
 transmissions. Duplicate/token retention is five minutes; peer state is in-memory.
+
+Version 0.5 permits one outstanding PLI attempt. Scheduled updates remain held until
+its first application receipt, a submission failure, or an explicit 30/60/120/180/300
+second ACK wait deadline (default 120). An overdue update then samples the newest
+GPS position with a new token; manual Send also respects the pending wait. Late
+receipts update their original attempt, never release a newer wait. The most recent
+four retained attempts remain readable. No report is sent when automatic mode is off
+unless Send is explicitly pressed. RTT uses time from submission registration to
+the first matched application receipt per attempt: latest, longest, average and count
+over the last 32 confirmed attempts in this radio session. Unanswered retained
+attempts and last-confirmed age are separate evidence.
 
 ## Trust boundary
 

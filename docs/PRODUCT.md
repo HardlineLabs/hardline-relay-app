@@ -1,6 +1,6 @@
 # Product scope
 
-## Radio observatory (0.6)
+## Radio observatory (0.7)
 
 Five pages share the connected Meshtastic radio:
 
@@ -38,7 +38,13 @@ Five pages share the connected Meshtastic radio:
   reading an expanded card. All/TX/RX filters, traffic insights, comparison markers,
   clear history, and explicit JSONL export remain under compact controls.
 - **HARDLINE ATAK:** the saved/protected profile and verified activation workflow
-  described below. The companion plugin and shared contracts are unchanged.
+  described below, plus installed radio channel removal.
+
+Every main page shows the current node test or mesh survey in a compact clickable
+banner. Tap it to return to that node's existing inspector. Other tests remain
+disabled while one is running. Finished results remain linked for 30 seconds;
+navigation never starts or cancels a test. The Radio survey explanation describes
+its up-to-four targets and two checks per target.
 
 Live updates change existing views rather than rebuilding pages. The chart uses
 fixed wall-clock 20-second buckets and a fixed scale capped at ten packets per bar;
@@ -125,8 +131,15 @@ Relay cannot promise a third-party relay or coverage. MQTT stays disabled.
 
 Saved profiles and installed radio channels are different. Up to 64 profiles can
 be saved; a radio has one primary and up to seven secondary slots. Activation
-never evicts an unrelated key. Removing a saved profile does not erase installed
-radio keys; manage those in Meshtastic.
+never evicts an unrelated key. Installed channels include LongFast/default and
+unrelated channels. Remove identifies the radio slot and any same-name saved
+profile, pauses traffic, disables that channel and restarts the radio for a full
+read-back. Only verified removal deletes the saved profile. A timeout retains the
+profile and leaves plugin sending paused until a verified activation recovers it.
+Removing primary promotes the first remaining explicitly keyed channel to slot 0,
+with the replacement shown before confirmation. Install another channel first if
+primary is the only channel; inherited secondary keys need explicit configuration
+before primary removal. There is no remote revocation or secure-erasure claim.
 
 ## Activation
 
