@@ -68,7 +68,7 @@ class NodeMap(context: Context, private val own: RadioNode?, private val nodes: 
         }
         if (own?.latitude == null) {
             paint.textSize = 10 * resources.displayMetrics.scaledDensity
-            c.drawText("Centered on ${fallback?.name?.take(20)} · your position unknown", 12f, 22f, paint)
+            c.drawText("Centered on ${fallback?.name?.take(20)} · your position unknown", 12f, height - 40f, paint)
         }
         val now = System.currentTimeMillis()
         // Local equirectangular projection. This map is geographic context, never a coverage prediction.
