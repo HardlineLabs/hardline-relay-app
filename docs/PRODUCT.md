@@ -1,24 +1,48 @@
 # Product scope
 
-## Radio observatory (0.5)
+## Radio observatory (0.6)
 
-Four pages share the connected Meshtastic radio:
+Five pages share the connected Meshtastic radio:
 
 - **Radio:** connection assessment, ten-minute activity chart, timestamped cached
   battery/channel-utilization/TX-airtime/uptime, and an explicit connection survey.
-- **Mesh:** ranked node cards, per-node checks and sample history, and a north-up
-  offline geographic plot with selectable scale. The plot has no downloaded street
-  tiles, terrain model, or inferred coverage edges. Nodes without positions remain
-  in the list. Optional phone GPS supplies only the map origin while Relay is open;
-  it is never sent to Meshtastic or transmitted. Radio position is used otherwise.
-  With no local position, the plot centers on an available remote position and
-  labels the unknown origin; it never invents your position or distance.
-- **Activity:** incoming metadata, diagnostic submissions, status transitions and
-  collection gaps. Includes filters, a paused view while capture continues, node
-  drilldown, traffic mix, observed talkers, direct-distance observations, comparison
-  markers and explicit JSONL export through Android's document picker.
+- **Mesh:** node name/ID search with stable ordering and explicit evidence ranking.
+  Every node opens a live inspector: Test/Stop, check slots, progress, and results
+  stay above separately scrolling reception history. The same inspector opens from
+  map markers and packet details. Show on map focuses and highlights the node's
+  reported position; nodes without coordinates show No reported location.
+  Closing the inspector preserves the prior view.
+- **Map:** interactive USGS satellite/aerial imagery with optional topographic labels,
+  pinch zoom, pan, scale, Fit nodes, and local phone GPS. Detailed imagery is primarily
+  U.S. coverage; resolution elsewhere is limited. Tiles require internet; offline
+  the map is unavailable while node inspection and radio checks remain usable.
+  Marker colors distinguish destination acknowledgments within ten minutes, observed
+  RF traffic within ten minutes, and older/cached evidence. Dashed markers identify
+  advertised coarse coordinate precision. Reported positions are not verified GPS;
+  their source, precision and age are available in the inspector. Overlapping markers
+  offer a node chooser. No location or route is inferred from signal strength.
+  The collapsible Significant relays panel scrolls independently and lists unlocated
+  candidates with a recent destination acknowledgment, or at least two direct LoRa
+  receptions within ten minutes with SNR >= -7.5 dB and RSSI >= -115 dBm in this
+  capture/context. These screening thresholds are not a forwarding test or coverage
+  guarantee. A strong relayed packet does not qualify its origin. Optional phone GPS
+  supplies the local origin while Relay is open and is never transmitted. Without
+  a local fix, the map fits reported remote nodes and labels the unknown origin.
+  Map providers receive viewport tile requests, not node metadata.
+- **Activity:** an independently scrolling, recycled TX/RX packet list. Cards show
+  direction, time, To/From node, status, exposed payload size, and observed hops.
+  Unsupported encryption and rebroadcast flags are omitted. Tap a card to expand
+  metadata and status history inline; tap again to collapse. Associated status-only
+  events update TX cards, while collection events and unmatched statuses remain in
+  the metadata export. New arrivals wait behind a count button while scrolling or
+  reading an expanded card. All/TX/RX filters, traffic insights, comparison markers,
+  clear history, and explicit JSONL export remain under compact controls.
 - **HARDLINE ATAK:** the saved/protected profile and verified activation workflow
   described below. The companion plugin and shared contracts are unchanged.
+
+Live updates change existing views rather than rebuilding pages. The chart uses
+fixed wall-clock 20-second buckets and a fixed scale capped at ten packets per bar;
+scrolling and quiet periods do not rescale it. Text counters retain the full counts.
 
 Start capture explicitly. An ongoing notification provides Stop capture. Collection
 continues in the background while that service lives; it does not restart itself
@@ -55,7 +79,7 @@ treated as a destination acknowledgment. The confirming transport is not exposed
 by that status. Separately, actual LoRa receptions show which origins were heard
 during the survey. A native telemetry arrival is not claimed as an exactly correlated
 response. A timeout is unconfirmed; a routing acknowledgment can later be followed
-by an error. The timeline preserves those transitions. No result guarantees future
+by an error. Expanded TX cards and exports preserve those transitions. No result guarantees future
 delivery or proves that an unanswered node is offline.
 
 ### Observation coverage
@@ -66,8 +90,8 @@ Firmware forwarding/retries, corrupt or undecryptable receptions, all unknown po
 and other apps' outgoing submissions are not completely exposed. Traceroutes are
 handled internally by Meshtastic and suppressed from its external receive broadcast.
 Local malformed/duplicate counters are not exposed through this integration, so no
-per-packet errors or aggregate totals are invented. Outgoing API statuses may appear
-without an associated submission. Identical API notifications within two seconds
+per-packet errors or aggregate totals are invented. Outgoing API statuses may be recorded
+without an associated submission; these do not invent TX rows. Identical API notifications within two seconds
 are coalesced; this is not a measurement of over-air duplicate traffic.
 
 Cached nodes never count as fresh RF observations. MQTT observations are separated.
