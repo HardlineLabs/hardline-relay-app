@@ -32,6 +32,8 @@ data class MonitorState(
     val attempts: List<RadioSurvey.Attempt> = emptyList(),
     val surveyTargets: List<Int> = emptyList(),
     val surveyStopReason: String? = null,
+    val surveyBudget: Int = 0,
+    val surveyCompletedAt: Long = 0,
     val started: Long = System.currentTimeMillis(),
 )
 
@@ -395,7 +397,8 @@ class RadioMonitorService : Service() {
     private fun publish() {
         state = state.copy(nodes = nodes.values.toList(), events = events.toList(), surveyId = survey?.id ?: "",
             surveying = survey?.finished == false, attempts = survey?.attempts?.map { it.copy() } ?: emptyList(),
-            surveyTargets = survey?.targets ?: emptyList(), surveyStopReason = survey?.stopped)
+            surveyTargets = survey?.targets ?: emptyList(), surveyStopReason = survey?.stopped,
+            surveyBudget = survey?.budget ?: 0, surveyCompletedAt = if (survey?.finished == true) lastSurveyEnd else 0)
     }
 
     private fun nodeId(number: Int) = "!" + number.toUInt().toString(16).padStart(8, '0')

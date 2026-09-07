@@ -140,6 +140,17 @@ startup/recreation, QR encode/decode and encrypted Keystore-backed storage/provi
 behavior on physical phones. Camera alignment and real radio reboot/recovery are
 hardware checks. Never save actual channel QR images, keys or packet logs.
 
+## Channel removal and test navigation
+
+Channel-removal acceptance: create a disposable private profile, install it, then
+use Remove and verify the reboot/read-back completes, the saved profile disappears,
+and primary/unrelated radio channels remain. Reconnect again to confirm persistence.
+Never use a teammate's only active key as a disposable test. JVM tests cover primary
+replacement, inherited-key/sole-primary rejection, concurrency and lost read-back.
+For node tests, navigate through main pages while a check runs, tap the progress
+banner to return to its inspector, and verify a second test cannot start. Ordinary
+instrumentation uses synthetic state and never starts RF surveys.
+
 ## Build outputs
 
 - app/build/outputs/apk/debug/app-debug.apk

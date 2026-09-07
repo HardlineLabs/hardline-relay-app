@@ -12,6 +12,30 @@ import org.junit.Test
 
 /** Synthetic UI traffic only; these tests never initiate radio transmissions. */
 class ObservatoryUiTest {
+    @Test fun activeTestBannerReturnsToTheSameSuiteAcrossPages() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            val node = RadioNode(2, "!00000002", "Company relay", 0, 0)
+            var state = MonitorState(connected = true, nodes = listOf(node), surveying = true,
+                surveyId = "fixture", surveyTargets = listOf(2), surveyBudget = 4)
+            scenario.onActivity { a ->
+                val ui = ObservatoryUi(a, TextView(a), {}, {}, {}, { state })
+                a.setContentView(ui)
+                for (page in listOf(0, 1, 3, 4)) {
+                    ui.findViewWithTag<Button>("tab-$page").performClick()
+                    val banner = ui.findViewWithTag<Button>("test-progress")
+                    assertEquals(View.VISIBLE, banner.visibility)
+                    assertTrue(banner.text.contains("Company relay"))
+                    banner.performClick()
+                    assertEquals(2, ui.findViewWithTag<NodeInspector>("node-inspector").number)
+                    assertFalse(ui.findViewWithTag<Button>("node-test").isEnabled)
+                }
+                state = state.copy(surveying = false, surveyCompletedAt = SystemClock.elapsedRealtime())
+                ui.findViewWithTag<Button>("tab-3").performClick()
+                assertTrue(ui.findViewWithTag<Button>("test-progress").text.contains("View results"))
+                ui.destroy()
+            }
+        }
+    }
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private fun text(view: View): String = (if (view is TextView) view.text.toString() else "") +
         if (view is ViewGroup) (0 until view.childCount).joinToString("\n") { text(view.getChildAt(it)) } else ""
