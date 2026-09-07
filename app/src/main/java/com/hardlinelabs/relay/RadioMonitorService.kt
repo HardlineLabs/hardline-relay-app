@@ -30,6 +30,8 @@ data class MonitorState(
     val surveyText: String = "Run a check to measure addressed communication.",
     val surveying: Boolean = false,
     val attempts: List<RadioSurvey.Attempt> = emptyList(),
+    val surveyTargets: List<Int> = emptyList(),
+    val surveyStopReason: String? = null,
     val started: Long = System.currentTimeMillis(),
 )
 
@@ -174,10 +176,12 @@ class RadioMonitorService : Service() {
             val old = nodes[n.num]
             nodes[n.num] = RadioNode(n.num, nodeId(n.num), cleanName(n.user?.longName ?: n.user?.shortName ?: nodeId(n.num)),
                 n.channel, n.lastHeard.toLong() * 1000, p?.latitude, p?.longitude, p?.time?.toLong()?.times(1000),
-                old?.observed ?: 0, old?.acknowledged ?: 0, old?.rssi, old?.snr, old?.hops)
+                old?.observed ?: 0, old?.acknowledged ?: 0, old?.rssi, old?.snr, old?.hops,
+                p?.precisionBits?.takeIf { it in 1..32 })
         }
         phoneFix?.takeIf { System.currentTimeMillis() - it.third in 0..120_000 }?.let { fix ->
-            nodes[current.node]?.let { n -> nodes[current.node] = n.copy(latitude = fix.first, longitude = fix.second, positionTime = fix.third) }
+            nodes[current.node]?.let { n -> nodes[current.node] = n.copy(latitude = fix.first, longitude = fix.second,
+                positionTime = fix.third, positionPrecision = null, positionSource = "Phone GPS") }
         }
         val local = cached.firstOrNull { it.num == current.node }?.deviceMetrics
         state = state.copy(connected = true, message = "Radio connected · capture running", context = context, local = current.node,
@@ -390,7 +394,8 @@ class RadioMonitorService : Service() {
         context = state.context, survey = survey?.id ?: "", note = note))
     private fun publish() {
         state = state.copy(nodes = nodes.values.toList(), events = events.toList(), surveyId = survey?.id ?: "",
-            surveying = survey?.finished == false, attempts = survey?.attempts?.map { it.copy() } ?: emptyList())
+            surveying = survey?.finished == false, attempts = survey?.attempts?.map { it.copy() } ?: emptyList(),
+            surveyTargets = survey?.targets ?: emptyList(), surveyStopReason = survey?.stopped)
     }
 
     private fun nodeId(number: Int) = "!" + number.toUInt().toString(16).padStart(8, '0')

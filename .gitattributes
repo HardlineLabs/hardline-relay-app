@@ -2,3 +2,6 @@
 *.bat text eol=crlf
 *.jar binary
 *.png binary
+# Preserve upstream distribution bytes for the documented map asset checksums.
+app/src/main/assets/map/leaflet.js -text
+app/src/main/assets/map/leaflet.css -text whitespace=cr-at-eol
