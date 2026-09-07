@@ -79,8 +79,11 @@ internal class NodeInspector(context: Context, val number: Int, close: () -> Uni
             running -> "${s.surveyText}\n$heard receptions from this origin during the survey."
             s.surveying -> "A survey is running for other nodes. This inspector stays live."
             here -> "${attempts.count { it.outcome == "Acknowledged" }} destination · ${attempts.count { it.outcome == "Relay acknowledgment" }} routing acknowledgments · $heard RF receptions.\n" +
-                if (s.surveyText.startsWith("Wait") || s.surveyText.contains("stopped", true) || s.surveyText.contains("disconnected", true)) s.surveyText
-                else "${attempts.size} checks finished. ${if (attempts.none { it.outcome == "Acknowledged" }) "Destination confirmation was not exposed." else "Future delivery is not guaranteed."}"
+                when {
+                    s.surveyText.startsWith("Wait") -> s.surveyText
+                    s.surveyStopReason != null -> "${s.surveyStopReason}. ${attempts.size} checks submitted; no more will start."
+                    else -> "${attempts.size} checks finished. ${if (attempts.none { it.outcome == "Acknowledged" }) "Destination confirmation was not exposed." else "Future delivery is not guaranteed."}"
+                }
             else -> s.surveyText
         })
         metadata.update(n?.let { "${positionEvidence(it)}\nLast RF reception: ${age(it.observed)}\nLast destination acknowledgment: ${age(it.acknowledged)}\nCached last heard: ${age(it.lastKnown)}\n${s.context}" } ?: "Node metadata unavailable")

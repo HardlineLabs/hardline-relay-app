@@ -44,6 +44,7 @@ class SatelliteMapTest {
             instrumentation.runOnMainSync { panel.focus(n.id) }
             assertEquals("true", js(web, "map.getCenter().lat===40 && map.getCenter().lng===-105 && map.getZoom()>=14"))
             assertEquals("true", js(web, "document.querySelector('.node-marker.focused') !== null"))
+            assertEquals("true", js(web, "document.querySelector('.name').getBoundingClientRect().width>60"))
             js(web, "markers.get('!00000002').fire('click')")
             instrumentation.waitForIdleSync(); assertEquals(2, selected.get())
             js(web, "relayUpdate({local:0,online:false,nodes:[]})")

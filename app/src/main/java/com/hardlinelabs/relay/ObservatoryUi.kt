@@ -187,7 +187,7 @@ class ObservatoryUi(private val activity: Activity, private val atak: View,
             val next = if (rerank) ranked else nodes.mapNotNull { byId[it.number] } + ranked.filter { it.number !in previous }
             val structureChanged = nodes.map { it.number } != next.map { it.number }
             nodes = next
-            count.update("${nodes.size} known nodes · cached and observed evidence")
+            count.update("${nodes.size} known ${if (nodes.size == 1) "node" else "nodes"} · cached and observed evidence")
             if (structureChanged) adapter.notifyDataSetChanged()
             else for (i in 0 until list.childCount) nodes.getOrNull(list.firstVisiblePosition + i)?.let { bind(list.getChildAt(i) as LinearLayout, it) }
         }

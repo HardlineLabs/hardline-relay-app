@@ -96,6 +96,8 @@ class ObservatoryUiTest {
                 suite.findViewWithTag<Button>("node-stop").performClick(); assertEquals(1, stops)
                 suite.update(state.copy(surveying = false, attempts = listOf(state.attempts.single().copy(outcome = "Relay acknowledgment", elapsed = 1200))))
                 assertTrue(text(suite).contains("Relay acknowledgment"))
+                suite.update(state.copy(surveying = false, surveyStopReason = "Stopped by you"))
+                assertTrue(text(suite).contains("no more will start"))
             }
         }
     }
