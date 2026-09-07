@@ -24,6 +24,8 @@ class ObservatoryUi(private val activity: Activity, private val atak: View,
     private val body = FrameLayout(activity)
     private val heading: TextView
     private val connection: TextView
+    private val testBanner: Button
+    private var testNode: RadioNode? = null
     private val navButtons = mutableListOf<Button>()
     private val pages = mutableMapOf<Int, View>()
     private val radioBindings = mutableListOf<(MonitorState) -> Unit>()
@@ -41,6 +43,10 @@ class ObservatoryUi(private val activity: Activity, private val atak: View,
         ui.label(header, "HARDLINE  /  RELAY", 10f, ui.mint).letterSpacing = .16f
         heading = ui.label(header, "Radio", 25f).apply { typeface = Typeface.DEFAULT_BOLD }
         connection = ui.label(header, size = 12f, color = ui.muted).also(ui::single)
+        testBanner = ui.button(header, "") { testNode?.let(::inspect) }.apply {
+            tag = "test-progress"; visibility = GONE; textSize = 13f; isAllCaps = false
+            maxLines = 2; minLines = 2; setTextColor(ui.mint)
+        }
         addView(body, LayoutParams(-1, 0, 1f))
         val navigation = ui.row().apply { setPadding(ui.dp(4), ui.dp(2), ui.dp(4), ui.dp(6)) }
         listOf("Radio", "Mesh", "Map", "Activity", "HARDLINE\nATAK").forEachIndexed { index, title ->
@@ -78,8 +84,20 @@ class ObservatoryUi(private val activity: Activity, private val atak: View,
     private fun refresh() {
         val s = state()
         connection.update(if (!capturing()) "Capture stopped · retained history" else s.message)
+        updateTestBanner(s)
         when (page) { 0 -> radioBindings.forEach { it(s) }; 1 -> meshPage?.update(s); 2 -> map?.update(s); 3 -> feed?.update(s) }
         inspector?.update(s)
+    }
+    private fun updateTestBanner(s: MonitorState) {
+        val completed = s.surveyCompletedAt > 0 && android.os.SystemClock.elapsedRealtime() - s.surveyCompletedAt in 0..30_000
+        val target = s.attempts.lastOrNull()?.node ?: s.surveyTargets.firstOrNull()
+        testNode = s.nodes.firstOrNull { it.number == target }
+        testBanner.visibility = if ((s.surveying || completed) && testNode != null) VISIBLE else GONE
+        testBanner.update(when {
+            !s.surveying -> "${if (s.surveyStopReason != null) "Test ended" else "Test complete"} · ${testNode?.name}\nView results"
+            s.surveyTargets.size > 1 -> "Mesh survey · ${testNode?.name}\nCheck ${s.attempts.size.coerceAtLeast(1)}/${s.surveyBudget} · View test"
+            else -> "Test in progress · ${testNode?.name}\nView test"
+        })
     }
     private fun inspect(n: RadioNode) {
         closeInspector()
@@ -117,6 +135,7 @@ class ObservatoryUi(private val activity: Activity, private val atak: View,
         }.apply { tag = "radio-check" }
         radioBindings.add { s -> action.update(if (!capturing()) "Start capture" else if (s.surveying) "Stop survey" else "Check my connection"); action.isEnabled = !capturing() || s.connected }
         live(hero, 13f, ui.muted) { it.surveyText }
+        ui.label(hero, "Checks up to 4 eligible known nodes ranked by recent evidence, twice each (8 checks maximum). Alternates an addressed acknowledgment probe with a device-telemetry request. Waits between checks; no public chat. Inspect one node for a focused 4-check test.", 12f, ui.muted)
         ui.button(hero, "Why this assessment?") {
             explain("Reading the evidence", "A destination acknowledgment and a routing acknowledgment are different evidence. A routing acknowledgment may only mean that a relay repeated a packet. The pinned API cannot reliably identify destination acknowledgments for non-chat diagnostics.\n\nActual LoRa receptions independently show which origins were heard. A timeout means unconfirmed; it does not prove that a node is offline. Inspect a node to test it and watch each check.")
         }

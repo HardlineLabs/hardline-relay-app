@@ -69,6 +69,11 @@ SUBMITTING, AWAITING RECEIPT, RECEIVED, UNCONFIRMED, or SEND FAILED.
 After 60 seconds without a receipt, delivery is unknown, not proven loss.
 A matching late receipt may confirm within five minutes while the same session
 remains active. Older attempt callbacks/receipts must not overwrite the last attempt.
+Version 0.5 retains 32 recent attempt timestamps for a separate point RTT average,
+latest, longest and sample count. Matching older receipts may contribute one sample
+without replacing the latest point status. RTT is local monotonic send-to-application
+receipt time; duplicate/wrong-recipient receipts do not add samples. Session reset
+clears these timing records.
 Disconnect/channel change makes an outstanding result UNCONFIRMED; it must never
 turn an already confirmed result into failure. New plugin lifetime starts with no send.
 

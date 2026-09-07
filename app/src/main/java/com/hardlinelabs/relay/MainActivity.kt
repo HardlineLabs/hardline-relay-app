@@ -298,11 +298,20 @@ class MainActivity : Activity() {
                 button(actions, if (pkg.locked && !installed) "Unlock" else "Activate") { activateDialog(pkg) }.contentDescription = if (pkg.locked && !installed) "Unlock & activate ${pkg.name}" else "Activate ${pkg.name}"
                 button(actions, "Share QR") { showQr(pkg) }.contentDescription = "Share QR: ${pkg.name}"
                 button(actions, "Remove") {
-                    AlertDialog.Builder(this).setTitle("Remove saved ${pkg.name}?")
-                        .setMessage("Removes the saved package from this phone. Installed radio keys remain; manage those in Meshtastic.")
-                        .setNegativeButton("Cancel", null).setPositiveButton("Remove") { _, _ ->
-                            task("Removing saved channel…") { store.remove(pkg.id); "Saved channel removed." }
-                        }.show()
+                    val currentRadio = snapshot
+                    if (currentRadio == null) status.text = "Connect and refresh the radio before removing a channel."
+                    else {
+                        val indices = currentRadio.channels.settings.indices.filter { currentRadio.channels.settings[it].name.equals(pkg.name, true) }
+                        when (indices.size) {
+                            0 -> AlertDialog.Builder(this).setTitle("Remove saved ${pkg.name}?")
+                                .setMessage("No installed channel with this name is listed on the connected radio. Remove this saved profile?")
+                                .setNegativeButton("Cancel", null).setPositiveButton("Remove") { _, _ ->
+                                    task("Removing saved profile…") { store.remove(pkg.id); "Saved profile removed; no matching radio channel was listed." }
+                                }.show()
+                            1 -> removeRadioDialog(indices.single(), currentRadio)
+                            else -> status.text = "Multiple installed channels use this name. Choose the exact slot under Installed on radio."
+                        }
+                    }
                 }.contentDescription = "Remove saved ${pkg.name}"
             }
         } catch (_: Exception) { text(savedList, "Saved channels cannot be unlocked on this phone. Existing data has been preserved.", 15f, Color.rgb(255, 151, 141)) }
@@ -311,17 +320,46 @@ class MainActivity : Activity() {
         clearList(radioList)
         val current = snapshot ?: run { text(radioList, "Radio unavailable", 14f, muted); return }
         current.channels.settings.forEachIndexed { index, c ->
-            if (index == 0) text(radioList, if (c.name.isBlank()) "Primary channel" else "${c.name} · Primary", 14f, muted)
-            else if (runCatching { ChannelProvisioning.validate(c) }.isSuccess) {
-                val row = card(radioList); text(row, c.name, 18f)
-                button(row, "Send test: ${c.name}") {
-                    val s = service ?: return@button
-                    if (SystemClock.elapsedRealtime() - lastTest < 5000) { status.text = "Wait five seconds between tests."; return@button }
-                    lastTest = SystemClock.elapsedRealtime()
-                    task("Sending test…") { MeshChannelClient(s).send(index, c, current.node) }
+            if (index == 0 || c != org.meshtastic.proto.ChannelSettings()) {
+                val row = card(radioList); text(row, radioChannelName(current, index), 18f)
+                text(row, "Slot $index · ${if (index == 0) "Primary" else "Secondary"}", 13f, muted)
+                button(row, "Remove from radio") { removeRadioDialog(index, current) }
+                if (index > 0 && runCatching { ChannelProvisioning.validate(c) }.isSuccess) {
+                    button(row, "Send test: ${c.name}") {
+                        val s = service ?: return@button
+                        if (SystemClock.elapsedRealtime() - lastTest < 5000) { status.text = "Wait five seconds between tests."; return@button }
+                        lastTest = SystemClock.elapsedRealtime()
+                        task("Sending test…") { MeshChannelClient(s).send(index, c, current.node) }
+                    }
                 }
             }
         }
+    }
+    private fun radioChannelName(current: MeshChannelClient.Snapshot, index: Int) =
+        current.channels.settings[index].name.ifBlank { current.config.lora?.modem_preset?.name?.replace('_', ' ') ?: "Unnamed channel" }
+    private fun removeRadioDialog(index: Int, current: MeshChannelClient.Snapshot) {
+        val name = radioChannelName(current, index)
+        val saved = store.list().filter { it.name.equals(current.channels.settings[index].name, true) }
+        val replacement = if (index == 0) current.channels.settings.indices.firstOrNull {
+            it > 0 && current.channels.settings[it] != org.meshtastic.proto.ChannelSettings()
+        } else null
+        if (index == 0 && replacement == null) { status.text = "Install another channel before removing the primary channel."; return }
+        val explanation = "Remove $name from radio slot $index? The radio will restart briefly so Relay can verify removal." +
+            (replacement?.let { "\n\n${radioChannelName(current, it)} will become primary in slot 0; its former slot $it will be cleared." } ?: "") +
+            if (saved.isNotEmpty()) "\n\nAlso deletes saved profile: ${saved.joinToString { it.name }}. This matches by name; inspect the selected slot before confirming." else ""
+        AlertDialog.Builder(this).setTitle("Remove $name?").setMessage(explanation)
+            .setNegativeButton("Cancel", null).setPositiveButton("Remove from radio") { _, _ ->
+                val s = service ?: return@setPositiveButton
+                RadioMonitorService.instance?.stopSurvey("Channel removal requested")
+                task("Pausing traffic before removal…") {
+                    store.clearActive()
+                    runOnUiThread { snapshot = null; renderSaved(); renderRadio() }
+                    Thread.sleep(6000)
+                    val after = MeshChannelClient(s).remove(index, current, ::progress)
+                    snapshot = after; store.removalVerified(saved.map { it.id }.toSet())
+                    "$name removed from radio and matching saved profiles. Select a channel in the plugin to resume."
+                }
+            }.show()
     }
     private fun showQr(pkg: ChannelProfile.Package) {
         val bitmap = BarcodeEncoder().encodeBitmap(pkg.qr(), BarcodeFormat.QR_CODE, 700, 700)
