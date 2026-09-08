@@ -39,4 +39,25 @@ class ProfileStorageTest {
             }
         } finally { store.remove(original.id); pass.fill('\u0000') }
     }
+    @Test fun sharedProfilesKeepRadioActivationAndRemovalIndependent() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val file = "profile-radio-test.v1"
+        val store = ProfileStore(context, file)
+        val pkg = ChannelProfile.create(ChannelProvisioning.create("Fixture"), 20, null)
+        val open = ChannelProfile.open(pkg, null)
+        try {
+            store.save(pkg)
+            store.selectRadio(1); store.activated(pkg, open, 1, 1)
+            store.selectRadio(2)
+            assertNull(store.active()); assertFalse(store.switching())
+            assertEquals(pkg.id, store.list().single().id)
+            store.clearActive(); assertTrue(store.switching())
+            store.selectRadio(1)
+            assertEquals(1, store.active()!!.getInt("node")); assertFalse(store.switching())
+            store.selectRadio(2); assertTrue(store.switching())
+            store.removalVerified(emptySet()); assertEquals(1, store.list().size)
+            store.remove(pkg.id); assertTrue(store.list().isEmpty())
+            store.selectRadio(1); assertNull(store.active())
+        } finally { java.io.File(context.noBackupFilesDir, file).delete() }
+    }
 }

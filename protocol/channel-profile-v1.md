@@ -71,11 +71,14 @@ channel fingerprint and complete supported RF profile. Automatic PLI remains Off
 
 Installed keys remain accessible to Meshtastic and the radio. The passphrase
 protects unused saved contingencies, not an already-installed key or a previously
-compromised copy. Relay 0.7 lists installed channels including unrelated/default
-channels. Removal identifies the radio slot and any same-name saved profile in an
-explicit confirmation, pauses plugin traffic, disables the slot, restarts the radio,
-and verifies the fresh channel set before deleting saved profiles or releasing the
-pause. A disabled-channel reply alone cannot verify removal: the pinned Android
+compromised copy. Relay 0.8 keeps saved profiles shared across radios, while activation evidence and
+unconfirmed changes belong to the selected radio. The provider schema is unchanged;
+its active evidence describes the radio most recently verified by Relay.
+Saved-profile removal only deletes the app package. Installed-channel removal only
+removes the selected radio slot; it retains saved profiles for later activation.
+Relay lists unrelated/default installed channels too. Radio removal identifies the
+slot in an explicit confirmation, pauses plugin traffic, disables the slot, restarts
+the radio and verifies the fresh channel set before releasing the pause. A disabled-channel reply alone cannot verify removal: the pinned Android
 cache ignores those replies. Primary removal moves the first remaining explicitly
 keyed secondary to slot zero and clears its old slot, with that replacement shown
 before confirmation. A sole primary or an inherited secondary key requires explicit

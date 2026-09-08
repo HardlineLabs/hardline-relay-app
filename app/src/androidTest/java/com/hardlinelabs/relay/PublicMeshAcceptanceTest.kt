@@ -50,6 +50,49 @@ class PublicMeshAcceptanceTest {
         instrumentation.runOnMainSync { activity.finish() }
     }
 
+    @Test fun immediateNextNodeAndActiveSurveyHistory() {
+        val args = InstrumentationRegistry.getArguments()
+        assumeTrue(args.getString("surveyRegression") == "true")
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val activity = instrumentation.startActivitySync(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        instrumentation.runOnMainSync { context.startForegroundService(Intent(context, RadioMonitorService::class.java)) }
+        fun waitUntil(timeout: Long, condition: () -> Boolean) {
+            val end = SystemClock.elapsedRealtime() + timeout
+            while (!condition() && SystemClock.elapsedRealtime() < end) Thread.sleep(250)
+            assertTrue("Expected live survey transition within deadline", condition())
+        }
+        waitUntil(30000) { RadioMonitorService.instance?.state?.connected == true }
+        val monitor = requireNotNull(RadioMonitorService.instance)
+        try {
+            val targets = monitor.state.nodes.filter { it.number != monitor.state.local && it.number != 0 && it.number != -1 && it.channel in 0..7 }.take(2)
+            assertEquals("Two cached nodes required", 2, targets.size)
+            monitor.startSurvey(targets[0].number)
+            waitUntil(35000) { monitor.state.attempts.isNotEmpty() }
+            val old = monitor.state.surveyId
+            monitor.stopSurvey(); waitUntil(3000) { !monitor.state.surveying }
+            monitor.startSurvey(targets[1].number)
+            waitUntil(3000) { monitor.state.surveying && monitor.state.surveyId != old }
+            assertEquals(listOf(targets[1].number), monitor.state.surveyTargets)
+            waitUntil(35000) { monitor.state.attempts.isNotEmpty() }
+            monitor.stopSurvey(); waitUntil(3000) { !monitor.state.surveying }
+            monitor.startSurvey(wholeMesh = true)
+            waitUntil(3000) { monitor.state.activeSurvey.isNotEmpty() }
+            val id = monitor.state.activeSurvey
+            Thread.sleep(35000)
+            assertTrue("Bluetooth must remain connected", monitor.state.connected)
+            monitor.stopSurvey(); waitUntil(3000) { !monitor.state.surveying }
+            val record = monitor.state.surveys.first { it.id == id }
+            assertTrue(record.ended >= record.started)
+            assertTrue(record.nodes.all { it.observed >= record.started })
+            report(monitor.state)
+            instrumentation.sendStatus(0, Bundle().apply { putString("stream", "\nSurvey regression passed: queued next node, active-map history, fresh-only RF nodes=${record.nodes.size}.\n") })
+        } finally {
+            monitor.stopSurvey()
+            instrumentation.runOnMainSync { activity.finish() }
+        }
+    }
+
     private fun report(s: MonitorState) {
         val current = s.events.filter { it.time >= s.started }
         InstrumentationRegistry.getInstrumentation().sendStatus(0, Bundle().apply {

@@ -14,9 +14,9 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /** One local owner. Neither passphrases nor unwrapped protected profiles are saved. */
-class ProfileStore(private val context: Context) {
+class ProfileStore(private val context: Context, private val fileName: String = "channels.v1") {
     companion object { private val lock = Any(); private const val ALIAS = "hardline.profiles.v1" }
-    private val file get() = AtomicFile(File(context.noBackupFilesDir, "channels.v1"))
+    private val file get() = AtomicFile(File(context.noBackupFilesDir, fileName))
     private fun key(): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         return (store.getKey(ALIAS, null) as? SecretKey) ?: KeyGenerator.getInstance("AES", "AndroidKeyStore").run {
@@ -48,6 +48,22 @@ class ProfileStore(private val context: Context) {
         Snapshot((0 until array.length()).map { ChannelProfile.parse(array.getString(it)) },
             root.optJSONObject("active"), root.optBoolean("switching", false))
     }
+    fun selectRadio(node: Int) = synchronized(lock) {
+        val root = read()
+        if (root.optInt("selectedRadio", root.optJSONObject("active")?.optInt("node") ?: 0) == node) return@synchronized
+        val selected = root.optInt("selectedRadio", root.optJSONObject("active")?.optInt("node") ?: 0)
+        val radios = root.optJSONObject("radios") ?: JSONObject()
+        if (selected != 0) radios.put(selected.toString(), JSONObject().put("active", root.optJSONObject("active"))
+            .put("switching", root.optBoolean("switching")))
+        val saved = radios.optJSONObject(node.toString())
+        radios.remove(node.toString())
+        while (radios.length() > 7) radios.remove(radios.keys().next())
+        root.remove("active")
+        saved?.optJSONObject("active")?.let { root.put("active", it) }
+        root.put("switching", saved?.optBoolean("switching") ?: false)
+        root.put("selectedRadio", node).put("radios", radios)
+        write(root)
+    }
     fun list() = snapshot().profiles
     fun save(pkg: ChannelProfile.Package) = synchronized(lock) {
         val root = read()
@@ -64,6 +80,9 @@ class ProfileStore(private val context: Context) {
         root.put("profiles", JSONArray((0 until array.length()).map { array.getString(it) }
             .filter { ChannelProfile.parse(it).id != id }))
         if (root.optJSONObject("active")?.optString("id") == id) root.remove("active")
+        root.optJSONObject("radios")?.let { radios -> radios.keys().forEach { radio ->
+            radios.optJSONObject(radio)?.let { state -> if (state.optJSONObject("active")?.optString("id") == id) state.remove("active") }
+        } }
         write(root)
     }
     fun switching(): Boolean = synchronized(lock) { read().optBoolean("switching", false) }

@@ -23,6 +23,12 @@ class MeshChannelClient(private val service: IMeshService, private val readBackT
             ChannelSet.ADAPTER.decode(service.channelSet), LocalConfig.ADAPTER.decode(service.config))
     }
 
+    fun shutdown(expectedNode: Int) {
+        val current = read()
+        check(current.node == expectedNode) { "Connected radio changed. Confirm shutdown again." }
+        service.requestShutdown(service.packetId, current.node)
+    }
+
     /** Disabled-channel replies are omitted by the pinned API cache. A full reconnect is required. */
     fun remove(index: Int, expected: Snapshot, progress: (String) -> Unit): Snapshot {
         val before = read()
@@ -62,7 +68,7 @@ class MeshChannelClient(private val service: IMeshService, private val readBackT
         error("Removal unconfirmed. Reconnect and refresh before retrying. Saved profiles are retained; sending remains paused.")
     }
 
-    fun add(settings: ChannelSettings, expectedNode: Int): Pair<Int, Snapshot> {
+    fun add(settings: ChannelSettings, expectedNode: Int, progress: (String) -> Unit = {}, timeoutMillis: Long = readBackTimeoutMillis): Pair<Int, Snapshot> {
         val before = read()
         check(before.node == expectedNode) { "Connected radio changed since confirmation. Refresh before retrying." }
         val index = ChannelProvisioning.selectSlot(before.channels.settings, settings, before.maxChannels)
@@ -70,10 +76,21 @@ class MeshChannelClient(private val service: IMeshService, private val readBackT
         if (before.channels.settings.getOrNull(index) != settings) {
             service.setChannel(Channel(index = index, role = Channel.Role.SECONDARY, settings = settings).encode())
         }
-        service.getRemoteChannel(service.packetId, before.node, index)
-        val deadline = System.nanoTime() + readBackTimeoutMillis * 1_000_000L
+        var requested = false
+        if (service.connectionState() == "Connected") {
+            service.getRemoteChannel(service.packetId, before.node, index)
+            requested = true
+        }
+        val deadline = System.nanoTime() + timeoutMillis * 1_000_000L
         while (System.nanoTime() < deadline) {
-            Thread.sleep(readBackTimeoutMillis.coerceIn(1, 400))
+            Thread.sleep(timeoutMillis.coerceIn(1, 400))
+            if (service.connectionState() != "Connected") {
+                requested = false; progress("Radio reconnecting after channel write…"); continue
+            }
+            if (!requested) {
+                service.getRemoteChannel(service.packetId, before.node, index)
+                requested = true; progress("Radio connected · Verifying installed key…"); continue
+            }
             val after = read()
             check(after.node == before.node) { "Connected radio changed. Stop and inspect both radios." }
             check(after.config == before.config) { "Radio configuration changed concurrently. Inspect in Meshtastic." }
@@ -95,7 +112,7 @@ class MeshChannelClient(private val service: IMeshService, private val readBackT
         ChannelProfile.validateRadio(lora)
         check(lora.hop_limit == 7) { "Expected 7 hops. Inspect Meshtastic first." }
         progress("Sending channel settings…")
-        val (index, added) = add(profile.settings, expectedNode)
+        val (index, added) = add(profile.settings, expectedNode, progress, activationTimeoutMillis)
         val expectedLora = lora.copy(channel_num = profile.slot, override_frequency = 0f)
         if (expectedLora != lora) {
             progress("Sending frequency settings · Radio may restart…")

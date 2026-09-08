@@ -57,4 +57,37 @@ class SatelliteMapTest {
             scenario.onActivity { panel.destroy() }
         }
     }
+    @Test fun activeSurveyExcludesCacheAndRangeIncludesHoppedReception() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            lateinit var panel: SatelliteMap
+            lateinit var web: WebView
+            val now = System.currentTimeMillis()
+            val own = RadioNode(1, "!00000001", "Origin", 0, now, 40.0, -105.0)
+            val heard = own.copy(number = 2, id = "!00000002", name = "Heard", latitude = 40.1, observed = now, hops = 3)
+            val cached = own.copy(number = 3, id = "!00000003", name = "Cache", latitude = 41.0)
+            val unlocated = RadioNode(4, "!00000004", "No GPS", 0, now, observed = now, hops = 4)
+            val record = SurveyRecord("survey", now, now + 1000, "Complete", "US", own, listOf(heard, unlocated))
+            val state = MonitorState(local = 1, nodes = listOf(own, heard, cached, unlocated), surveys = listOf(record))
+            scenario.onActivity { a ->
+                panel = SatelliteMap(a, {}, {}); a.setContentView(panel)
+                web = panel.findViewWithTag("satellite-map"); panel.update(state)
+            }
+            val deadline = System.currentTimeMillis() + 20000
+            while (js(web, "typeof relayUpdate") != "\"function\"" && System.currentTimeMillis() < deadline) Thread.sleep(250)
+            instrumentation.runOnMainSync {
+                panel.findViewWithTag<android.widget.Switch>("survey-mode").isChecked = true
+                panel.findViewWithTag<android.widget.CheckBox>("survey-range").isChecked = true
+            }
+            assertEquals("false", js(web, "nodes.some(n=>n.number===3)"))
+            assertEquals("true", js(web, "nodes.some(n=>n.number===2 && n.color==='#5ddac4')"))
+            assertEquals("true", js(web, "rangeCircle.getRadius()>11000"))
+            instrumentation.runOnMainSync {
+                assertEquals(listOf(2, 4, 1), panel.inspectionState()!!.nodes.map { it.number })
+                panel.update(state.copy(surveys = listOf(record.copy(id = "new", ended = 0, nodes = emptyList()), record), activeSurvey = "new"))
+            }
+            assertEquals("false", js(web, "nodes.some(n=>n.number===2)"))
+            assertEquals("true", js(web, "rangeCircle===null"))
+            scenario.onActivity { panel.destroy() }
+        }
+    }
 }

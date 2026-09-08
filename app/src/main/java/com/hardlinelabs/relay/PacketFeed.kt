@@ -43,7 +43,11 @@ internal class PacketFeed(context: Context, private val inspect: (RadioNode) -> 
         })
     }
     fun follow(id: String) { node = id; filter = "All"; expanded.clear(); refresh(true); list.setSelection(0) }
-    fun update(s: MonitorState) { state = s; refresh(false) }
+    fun update(s: MonitorState) {
+        val changed = state.local != s.local
+        if (changed) { clearView(); ids.clear(); node = null; scrolling = false; list.setSelection(0) }
+        state = s; refresh(changed)
+    }
     fun clearView() { expanded.clear(); rows = emptyList(); adapter.notifyDataSetChanged() }
     private fun key(e: RadioEvent) = "${e.time}/${e.direction}/${e.source}/${e.destination}/${e.packetId}/${e.kind}"
     private fun refresh(force: Boolean) {

@@ -30,6 +30,7 @@ class MeshChannelClientTest {
         val channelWrites = mutableListOf<Channel>()
         var rebooting = false
         var reboots = 0
+        var shutdowns = 0
         val service = Proxy.newProxyInstance(IMeshService::class.java.classLoader, arrayOf(IMeshService::class.java)) { _, method, args ->
             when (method.name) {
                 "connectionState" -> if (rebooting) { rebooting = false; "Disconnected" } else if (connected) "Connected" else "Disconnected"
@@ -64,6 +65,7 @@ class MeshChannelClientTest {
                     null
                 }
                 "send" -> { sent = args!![0] as DataPacket; null }
+                "requestShutdown" -> { assertEquals(123, args!![1]); shutdowns++; null }
                 "requestReboot" -> {
                     assertEquals(123, args!![1]); reboots++; rebooting = true
                     if (!dropReadBack) {
@@ -203,5 +205,15 @@ class MeshChannelClientTest {
         assertThrows(IllegalStateException::class.java) { MeshChannelClient(radio.service, 20, 30).activate(profile, 123) {} }
         assertEquals(1, radio.configWrites)
         assertEquals(0, radio.config.lora!!.channel_num)
+    }
+    @Test fun shutdownOnlyAddressesTheConfirmedConnectedRadio() {
+        val radio = FakeRadio()
+        val client = MeshChannelClient(radio.service)
+        assertThrows(IllegalStateException::class.java) { client.shutdown(456) }
+        assertEquals(0, radio.shutdowns)
+        client.shutdown(123); assertEquals(1, radio.shutdowns)
+        radio.connected = false
+        assertThrows(IllegalStateException::class.java) { client.shutdown(123) }
+        assertEquals(1, radio.shutdowns)
     }
 }
