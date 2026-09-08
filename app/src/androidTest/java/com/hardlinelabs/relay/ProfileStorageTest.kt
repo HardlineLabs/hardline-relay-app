@@ -22,7 +22,9 @@ class ProfileStorageTest {
         val image = BarcodeEncoder().encodeBitmap(original.qr(), BarcodeFormat.QR_CODE, 700, 700)
         val pixels = IntArray(image.width * image.height)
         image.getPixels(pixels, 0, image.width, 0, 0, image.width, image.height)
-        val decoded = MultiFormatReader().decode(BinaryBitmap(HybridBinarizer(RGBLuminanceSource(image.width, image.height, pixels)))).text
+        // This fixture is an exact generated bitmap; optical detection is a separate hardware check.
+        val decoded = MultiFormatReader().decode(BinaryBitmap(HybridBinarizer(RGBLuminanceSource(image.width, image.height, pixels))),
+            mapOf(DecodeHintType.PURE_BARCODE to true)).text
         image.recycle(); pixels.fill(0)
         val scanned = ChannelProfile.parse(decoded)
         val store = ProfileStore(context)
