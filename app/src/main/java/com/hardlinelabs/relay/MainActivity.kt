@@ -52,8 +52,44 @@ class MainActivity : Activity() {
     private var service: IMeshService? = null
     private var bound = false
     private var busy = false
+    private var checkingConnection = false
+    private val connectionHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val connectionTick = object : Runnable {
+        override fun run() { refreshConnection(); connectionHandler.postDelayed(this, 5000) }
+    }
+    private fun refreshConnection() {
+        val api = service ?: return
+        if (busy || checkingConnection) return
+        checkingConnection = true
+        worker.execute {
+            val result = runCatching {
+                val current = MeshChannelClient(api).read()
+                val own = api.nodes.orEmpty().firstOrNull { it.num == current.node }
+                val metrics = own?.deviceMetrics
+                current to MonitorState(connected = true, local = current.node,
+                    longName = own?.user?.longName.orEmpty(), shortName = own?.user?.shortName.orEmpty(),
+                    battery = metrics?.batteryLevel, voltage = metrics?.voltage, utilization = metrics?.channelUtilization,
+                    airtime = metrics?.airUtilTx, uptime = metrics?.uptimeSeconds,
+                    metricTime = metrics?.time?.toLong()?.times(1000) ?: 0,
+                    context = "${current.config.lora?.region} · ${current.config.lora?.modem_preset} · ${current.config.lora?.hop_limit} hops",
+                    message = "Radio connected · capture stopped")
+            }
+            runOnUiThread {
+                checkingConnection = false
+                if (isDestroyed || busy) return@runOnUiThread
+                val current = result.getOrNull()
+                if (current?.first?.node != snapshot?.node || current?.first?.channels != snapshot?.channels || current?.first?.config != snapshot?.config) {
+                    snapshot = current?.first
+                    snapshot?.let { store.selectRadio(it.node) }
+                    renderSaved(); renderRadio()
+                }
+                observatory.connectionSnapshot(current?.second ?: MonitorState(message = "Radio disconnected"))
+            }
+        }
+    }
     private var snapshot: MeshChannelClient.Snapshot? = null
     private var secretDialog: AlertDialog? = null
+    private var operationDialog: AlertDialog? = null
     private var pendingId: String? = null
     private var lastTest = -5000L
     @Volatile private var unlockAfter = 0L
@@ -100,23 +136,31 @@ class MainActivity : Activity() {
                 .setDesiredBarcodeFormats(IntentIntegrator.QR_CODE).setPrompt("Scan a Hardline channel")
                 .setBeepEnabled(false).setBarcodeImageEnabled(false).setOrientationLocked(false).initiateScan()
         }
-        text(layout, "SAVED CHANNELS", 12f, accent)
+        text(layout, "SAVED PROFILES", 12f, accent)
         savedList = column(); layout.addView(savedList)
         text(layout, "ON THIS RADIO", 12f, accent)
         radioList = column(); layout.addView(radioList)
         button(layout, "Open Meshtastic") { packageManager.getLaunchIntentForPackage("com.geeksville.mesh")?.let(::startActivity) }
         val atak = ScrollView(this).apply { isFillViewport = true; setBackgroundColor(Color.rgb(13,21,27)); addView(layout) }
-        observatory = ObservatoryUi(this, atak, ::startCapture, ::exportMetadata, ::usePhoneGps)
+        observatory = ObservatoryUi(this, atak, ::startCapture, ::exportMetadata, ::usePhoneGps, shutdownRadio = { expected ->
+            RadioMonitorService.instance?.stopSurvey("Radio shutdown requested")
+            val api = service
+            if (api != null) task("Sending radio shutdown…") {
+                MeshChannelClient(api).shutdown(expected)
+                snapshot = null
+                "Shutdown sent. Turn the radio on physically to reconnect."
+            }
+        })
         setContentView(observatory)
         pendingId = intent.getStringExtra("profileId")
         if (pendingId != null) observatory.showAtak()
         renderSaved(); bindMesh()
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); pendingId = intent.getStringExtra("profileId"); if (pendingId != null) observatory.showAtak(); refresh() }
-    override fun onResume() { super.onResume(); if (::observatory.isInitialized) observatory.resume(); if (mapGpsRequested) usePhoneGps(); if (::savedList.isInitialized) { renderSaved(); if (service != null) refresh() } }
-    override fun onPause() { if (::observatory.isInitialized) observatory.pause(); getSystemService(LocationManager::class.java).removeUpdates(mapLocation); super.onPause() }
+    override fun onResume() { super.onResume(); connectionHandler.removeCallbacks(connectionTick); connectionHandler.post(connectionTick); if (::observatory.isInitialized) observatory.resume(); if (mapGpsRequested) usePhoneGps(); if (::savedList.isInitialized) { renderSaved(); if (service != null) refresh() } }
+    override fun onPause() { connectionHandler.removeCallbacks(connectionTick); if (::observatory.isInitialized) observatory.pause(); getSystemService(LocationManager::class.java).removeUpdates(mapLocation); super.onPause() }
     override fun onStop() { secretDialog?.dismiss(); secretDialog = null; super.onStop() }
-    override fun onDestroy() { if (::observatory.isInitialized) observatory.destroy(); disconnect(); worker.shutdownNow(); super.onDestroy() }
+    override fun onDestroy() { connectionHandler.removeCallbacks(connectionTick); if (::observatory.isInitialized) observatory.destroy(); disconnect(); operationDialog?.dismiss(); worker.shutdownNow(); super.onDestroy() }
     @Deprecated("Legacy Android back navigation")
     override fun onBackPressed() { if (!observatory.back()) super.onBackPressed() }
     private fun disconnect() { if (bound) unbindService(connection); bound = false; service = null }
@@ -163,17 +207,23 @@ class MainActivity : Activity() {
         bound = runCatching { bindService(Intent().setClassName("com.geeksville.mesh", "com.geeksville.mesh.service.MeshService"), connection, BIND_AUTO_CREATE) }.getOrDefault(false)
         if (!bound) status.text = "Open Meshtastic, then tap Refresh radio."
     }
-    private fun progress(message: String) = runOnUiThread { if (!isDestroyed) status.text = message }
-    private fun task(message: String, work: () -> String) {
+    private fun progress(message: String) = runOnUiThread { if (!isDestroyed) { status.text = message; operationDialog?.setMessage(message) } }
+    private fun task(message: String, showProgress: Boolean = false, work: () -> String) {
         if (busy) return
         busy = true; controls.forEach { it.isEnabled = false }; status.text = message
+        if (showProgress) operationDialog = AlertDialog.Builder(this).setTitle("Channel activation")
+            .setMessage(message).setCancelable(false).show()
         worker.execute {
             val result = runCatching(work)
             runOnUiThread {
                 busy = false
+                val activationResult = operationDialog != null
+                operationDialog?.dismiss(); operationDialog = null
                 if (isDestroyed) return@runOnUiThread
                 controls.forEach { it.isEnabled = true }
                 status.text = result.getOrElse { it.message ?: "Operation interrupted. Refresh and verify the radio." }
+                if (activationResult) AlertDialog.Builder(this).setTitle(if (result.isSuccess) "Channel active" else "Activation not completed")
+                    .setMessage(status.text).setPositiveButton("Done", null).show()
                 renderSaved(); renderRadio()
                 if (result.isSuccess) pendingId?.let { id ->
                     pendingId = null
@@ -186,7 +236,7 @@ class MainActivity : Activity() {
         val s = service ?: return
         task("Checking radio…") {
             snapshot = null
-            val current = MeshChannelClient(s).read(); snapshot = current
+            val current = MeshChannelClient(s).read(); store.selectRadio(current.node); snapshot = current
             "Radio connected · ${current.config.lora?.modem_preset} · ${current.config.lora?.hop_limit} hops"
         }
     }
@@ -237,14 +287,15 @@ class MainActivity : Activity() {
         dialog.setOnShowListener { dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             RadioMonitorService.instance?.stopSurvey("Profile activation requested")
             val pass = if (pkg.locked) password.text.toString().toCharArray() else null
-            task("Unlocking ${pkg.name}…") {
+            task("Unlocking ${pkg.name}…", showProgress = true) {
                 val opened = try { ChannelProfile.open(pkg, pass) }
                     catch (e: Exception) { unlockAfter = SystemClock.elapsedRealtime() + 5000; throw e }
                     finally { pass?.fill('\u0000') }
+                store.selectRadio(current.node)
                 store.clearActive()
                 runOnUiThread { snapshot = null; renderSaved(); renderRadio() }
                 progress("Pausing Relay traffic before changing the radio…")
-                Thread.sleep(6000)
+                for (seconds in 6 downTo 1) { progress("Activating ${pkg.name} · waiting ${seconds}s for plugin traffic to pause…"); Thread.sleep(1000) }
                 val (index, after) = MeshChannelClient(s).activate(opened, current.node, ::progress)
                 snapshot = after; store.activated(pkg, opened, after.node, index)
                 "${pkg.name} active · ${if (opened.publicMesh) "Public-mesh compatible" else "Separate frequency"}."
@@ -297,21 +348,12 @@ class MainActivity : Activity() {
                 val actions = LinearLayout(this); c.addView(actions)
                 button(actions, if (pkg.locked && !installed) "Unlock" else "Activate") { activateDialog(pkg) }.contentDescription = if (pkg.locked && !installed) "Unlock & activate ${pkg.name}" else "Activate ${pkg.name}"
                 button(actions, "Share QR") { showQr(pkg) }.contentDescription = "Share QR: ${pkg.name}"
-                button(actions, "Remove") {
-                    val currentRadio = snapshot
-                    if (currentRadio == null) status.text = "Connect and refresh the radio before removing a channel."
-                    else {
-                        val indices = currentRadio.channels.settings.indices.filter { currentRadio.channels.settings[it].name.equals(pkg.name, true) }
-                        when (indices.size) {
-                            0 -> AlertDialog.Builder(this).setTitle("Remove saved ${pkg.name}?")
-                                .setMessage("No installed channel with this name is listed on the connected radio. Remove this saved profile?")
-                                .setNegativeButton("Cancel", null).setPositiveButton("Remove") { _, _ ->
-                                    task("Removing saved profile…") { store.remove(pkg.id); "Saved profile removed; no matching radio channel was listed." }
-                                }.show()
-                            1 -> removeRadioDialog(indices.single(), currentRadio)
-                            else -> status.text = "Multiple installed channels use this name. Choose the exact slot under Installed on radio."
-                        }
-                    }
+                button(actions, "Remove profile") {
+                    AlertDialog.Builder(this).setTitle("Remove saved ${pkg.name}?")
+                        .setMessage("Removes this profile from the app. Installed radio channels remain unchanged.")
+                        .setNegativeButton("Cancel", null).setPositiveButton("Remove profile") { _, _ ->
+                            task("Removing saved profile…") { store.remove(pkg.id); "Saved profile removed. Radio channels unchanged." }
+                        }.show()
                 }.contentDescription = "Remove saved ${pkg.name}"
             }
         } catch (_: Exception) { text(savedList, "Saved channels cannot be unlocked on this phone. Existing data has been preserved.", 15f, Color.rgb(255, 151, 141)) }
@@ -339,14 +381,12 @@ class MainActivity : Activity() {
         current.channels.settings[index].name.ifBlank { current.config.lora?.modem_preset?.name?.replace('_', ' ') ?: "Unnamed channel" }
     private fun removeRadioDialog(index: Int, current: MeshChannelClient.Snapshot) {
         val name = radioChannelName(current, index)
-        val saved = store.list().filter { it.name.equals(current.channels.settings[index].name, true) }
         val replacement = if (index == 0) current.channels.settings.indices.firstOrNull {
             it > 0 && current.channels.settings[it] != org.meshtastic.proto.ChannelSettings()
         } else null
         if (index == 0 && replacement == null) { status.text = "Install another channel before removing the primary channel."; return }
         val explanation = "Remove $name from radio slot $index? The radio will restart briefly so Relay can verify removal." +
-            (replacement?.let { "\n\n${radioChannelName(current, it)} will become primary in slot 0; its former slot $it will be cleared." } ?: "") +
-            if (saved.isNotEmpty()) "\n\nAlso deletes saved profile: ${saved.joinToString { it.name }}. This matches by name; inspect the selected slot before confirming." else ""
+            (replacement?.let { "\n\n${radioChannelName(current, it)} will become primary in slot 0; its former slot $it will be cleared." } ?: "") + "\n\nSaved profiles remain in the app and can be activated again."
         AlertDialog.Builder(this).setTitle("Remove $name?").setMessage(explanation)
             .setNegativeButton("Cancel", null).setPositiveButton("Remove from radio") { _, _ ->
                 val s = service ?: return@setPositiveButton
@@ -356,8 +396,8 @@ class MainActivity : Activity() {
                     runOnUiThread { snapshot = null; renderSaved(); renderRadio() }
                     Thread.sleep(6000)
                     val after = MeshChannelClient(s).remove(index, current, ::progress)
-                    snapshot = after; store.removalVerified(saved.map { it.id }.toSet())
-                    "$name removed from radio and matching saved profiles. Select a channel in the plugin to resume."
+                    snapshot = after; store.removalVerified(emptySet())
+                    "$name removed from radio. Saved profiles retained. Select a channel in the plugin to resume."
                 }
             }.show()
     }

@@ -1,6 +1,6 @@
 # Product scope
 
-## Radio observatory (0.7)
+## Radio observatory (0.8)
 
 Five pages share the connected Meshtastic radio:
 
@@ -52,12 +52,10 @@ scrolling and quiet periods do not rescale it. Text counters retain the full cou
 
 Start capture explicitly. An ongoing notification provides Stop capture. Collection
 continues in the background while that service lives; it does not restart itself
-after process death or reboot. Restarting creates a new capture boundary. The private
-database retains up to 5,000 metadata events or seven days, whichever is smaller.
+after process death or reboot. Restarting creates a new capture boundary. The private database retains up to 5,000 metadata events or seven days per radio, whichever is smaller. Up to eight radios are retained, evicting the least recently used radio when necessary.
 Clear history removes observations, not channel profiles. Payload bodies, channel
 keys, passphrases and QR data are never retained in this history or its export.
-Exports include node IDs, times, RF context and derived distances. Node coordinates
-are held in memory for the map, not stored in activity records.
+Exports include node IDs, times, RF context and derived distances. Node coordinates are retained locally with per-radio node and survey history, never in activity records or metadata exports. Up to 1,000 nodes and 20 surveys are retained per radio. Older mixed activity has no trustworthy radio identity and is discarded on migration. Capture does not resume automatically after restart.
 
 ### Active checks and interpretation
 
@@ -70,8 +68,7 @@ public nodes. No scan or probe runs automatically just because capture is active
 
 One check is pending at a time. Submission spacing is at least 15 seconds, with
 a 25-second observation window and a five-second gap after timeout. Fresh channel
-utilization of 50% or more pauses further submissions. A survey ends within six
-minutes, never exceeds 12 submissions, and has a 30-second cooldown. Firmware may
+utilization of 50% or more pauses further submissions. A connection or individual-node survey ends within six minutes and never exceeds 12 submissions. A new test is accepted immediately after Stop/completion and visibly waits for outstanding radio spacing before submitting. The whole-mesh survey below has its own bounded queue instead of the six-minute limit. Firmware may
 retry packets independently; Stop prevents new submissions but cannot retract
 already queued RF traffic. Radio/configuration changes, disconnects, and profile
 activation stop a survey. Unresolved profile activation blocks diagnostic sends.
@@ -87,6 +84,48 @@ during the survey. A native telemetry arrival is not claimed as an exactly corre
 response. A timeout is unconfirmed; a routing acknowledgment can later be followed
 by an error. Expanded TX cards and exports preserve those transitions. No result guarantees future
 delivery or proves that an unanswered node is offline.
+
+
+### Active survey map and history
+
+The Active survey toggle replaces the normal map with a selected survey. Start
+creates an empty evidence set, preserving older surveys in a dated history picker.
+Each known eligible node gets two addressed checks consecutively, then the queue
+moves to the next node. Newly discovered eligible nodes join once. The queue stops
+when exhausted or when Stop is pressed; at most 1,000 targets / 2,000 submissions
+are allowed. The same utilization pause and per-packet timing apply. A large mesh
+can take hours; capture/connection/configuration loss ends it without auto-resume.
+
+Only origins actually received over LoRa during that survey populate its map,
+including incidental and hopped traffic. MQTT and cached last-heard timestamps do
+not qualify. Located received nodes stay green with their last-RF age. The unlocated
+panel lists every heard origin without coordinates, without the normal map's strong
+relay thresholds. Tap either to open its inspector. A survey stores the names,
+reported positions/precision, last RF metadata and tested-node IDs for comparison;
+packet bodies and keys are excluded. The header shows the latest survey age and the
+picker identifies the displayed survey's date/time. At most 20 surveys per radio
+survive app restarts; starting a new one selects it immediately.
+
+Estimated range is an optional circle from the survey's fixed recorded origin to
+the farthest located RF origin, including hops. It is observed mesh reach, not
+coverage, direct radio range or a guarantee within the circle. Reported coordinates
+can be old or coarse. Without origin/received-node coordinates the circle is
+unavailable. An available radio position is preferred; optional phone GPS can supply
+the origin when the phone represents the radio's placement.
+
+### Radio controls
+
+The Radio tab is green when connected and red when disconnected. The page shows
+short/long radio names, node ID, battery percentage/external-power state and voltage
+with the reading age. Shutdown requires Shutdown radio followed by Confirm shutdown;
+it addresses only the confirmed connected node. Submission is not proof of power-off,
+and restarting the radio requires physical access.
+
+Battery sharing uses Meshtastic device telemetry, not its external power-sensor
+module. The pinned 2.7.13 AIDL cannot read local module config and suppresses local
+admin replies from external broadcasts. Relay therefore shows this setting as
+unavailable and provides a guided button to enable Device metrics in Meshtastic.
+It never guesses the setting or overwrites unseen telemetry options.
 
 ### Observation coverage
 
@@ -132,10 +171,7 @@ Relay cannot promise a third-party relay or coverage. MQTT stays disabled.
 Saved profiles and installed radio channels are different. Up to 64 profiles can
 be saved; a radio has one primary and up to seven secondary slots. Activation
 never evicts an unrelated key. Installed channels include LongFast/default and
-unrelated channels. Remove identifies the radio slot and any same-name saved
-profile, pauses traffic, disables that channel and restarts the radio for a full
-read-back. Only verified removal deletes the saved profile. A timeout retains the
-profile and leaves plugin sending paused until a verified activation recovers it.
+unrelated channels. Remove from radio identifies the radio slot, pauses traffic, disables that channel and restarts the radio for a full read-back. Saved profiles remain available. Remove profile deletes only the app copy and works offline; installed radio keys remain. A timeout leaves plugin sending paused until a verified activation recovers it.
 Removing primary promotes the first remaining explicitly keyed channel to slot 0,
 with the replacement shown before confirmation. Install another channel first if
 primary is the only channel; inherited secondary keys need explicit configuration

@@ -7,6 +7,7 @@ const options = {maxNativeZoom:16, maxZoom:19, attribution, updateWhenIdle:true,
 const imagery = L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}', options);
 const labeled = L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}', options);
 const markers = new Map();
+let rangeCircle = null, currentView = "";
 let nodes = [], local = 0, online = false, centered = false, labels = false, loaded = 0, errors = 0, focused = '';
 const notice = document.getElementById('notice'), choices = document.getElementById('choices');
 function layer(){return labels ? labeled : imagery;}
@@ -40,7 +41,13 @@ function icon(n){
   return L.divIcon({html:root,className:'node-marker',iconSize:[24,24],iconAnchor:[10,10]});
 }
 window.relayUpdate = function(data){
+  if(currentView!==data.view){currentView=data.view;centered=false;focused='';choices.hidden=true;}
   nodes=data.nodes;local=data.local;
+  if(data.range){
+    const r=data.range;
+    if(!rangeCircle)rangeCircle=L.circle([r.lat,r.lon],{radius:r.meters,color:'#5ddac4',weight:2,fillOpacity:0.06,interactive:false}).addTo(map);
+    else rangeCircle.setLatLng([r.lat,r.lon]).setRadius(r.meters);
+  }else if(rangeCircle){rangeCircle.remove();rangeCircle=null;}
   if(online!==data.online){online=data.online;document.getElementById('map').classList.toggle('offline',!online);if(online)layer().addTo(map);else{imagery.remove();labeled.remove();}}
   const present=new Set();
   nodes.forEach(n=>{
