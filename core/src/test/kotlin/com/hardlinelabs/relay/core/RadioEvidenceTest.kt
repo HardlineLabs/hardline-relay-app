@@ -57,4 +57,35 @@ class RadioEvidenceTest {
         assertThrows(IllegalArgumentException::class.java) { RadioSurvey("x", listOf(0), 0, 1) }
         assertEquals(12, RadioSurvey("x", (1..20).toList(), 0, 4).budget)
     }
+    @Test fun wholeMeshChecksEachNodeThenIncludesNewDiscoveries() {
+        val s = RadioSurvey("net", listOf(11, 12), 0, 2, wholeMesh = true)
+        assertEquals(11, s.next(0, false)); s.sent(11, 1, 0); s.status(1, "Acknowledged", 1000)
+        assertEquals(11, s.next(15000, false)); s.sent(11, 2, 15000)
+        s.discover(listOf(12, 13, 13, 0, -1))
+        s.status(2, "Acknowledged", 16000)
+        assertEquals(listOf(11, 12, 13), s.targets)
+        for (i in 2..5) {
+            val time = i * 15000L
+            val node = if (i < 4) 12 else 13
+            assertEquals(node, s.next(time, false))
+            s.sent(node, i + 1, time); s.status(i + 1, "Acknowledged", time + 1000)
+        }
+        assertTrue(s.finished); assertNull(s.next(100000, false))
+    }
+    @Test fun nextTestCanQueueImmediatelyWithoutReusingPreviousCompletion() {
+        val old = RadioSurvey("old", listOf(11), 0, 4)
+        old.sent(11, 1, 0); old.stop("Stopped")
+        val next = RadioSurvey("new", listOf(12), 1000, 4, firstSendAt = 30000)
+        assertFalse(next.finished); assertNull(next.next(1000, false))
+        assertNull(next.next(30000, true)); assertEquals(12, next.next(30000, false))
+        assertFalse(next.status(1, "Acknowledged", 30000))
+        next.sent(12, 2, 30000); assertEquals(1, next.attempts.size)
+    }
+    @Test fun wholeMeshIsBoundedButNotCutOffBySmallSurveyDeadline() {
+        val s = RadioSurvey("net", listOf(11), 0, 2, wholeMesh = true)
+        s.discover((1..2000).toList())
+        assertEquals(1000, s.targets.size); assertEquals(2000, s.budget)
+        assertEquals(11, s.next(400000, false))
+        s.stop("Stopped"); assertNull(s.next(500000, false))
+    }
 }

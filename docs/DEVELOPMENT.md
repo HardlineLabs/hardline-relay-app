@@ -143,7 +143,7 @@ hardware checks. Never save actual channel QR images, keys or packet logs.
 ## Channel removal and test navigation
 
 Channel-removal acceptance: create a disposable private profile, install it, then
-use Remove and verify the reboot/read-back completes, the saved profile disappears,
+use Remove and verify the reboot/read-back completes, the saved profile remains,
 and primary/unrelated radio channels remain. Reconnect again to confirm persistence.
 Never use a teammate's only active key as a disposable test. JVM tests cover primary
 replacement, inherited-key/sole-primary rejection, concurrency and lost read-back.
@@ -189,3 +189,47 @@ Work from current origin/develop on feature/<name>. Validate and push coherent
 commits, then merge through develop. main is reserved for an authorized release.
 CI validates main, develop and feature branches. Source publication does not publish
 a production-signed APK or redistribute the ATAK SDK.
+
+## Survey history and per-radio acceptance (0.8)
+
+Core checks cover Stop followed immediately by another queued target, physical-send
+spacing, dynamic discoveries, busy-channel pauses and whole-mesh queue exhaustion.
+Android tests cover per-radio storage isolation/reopening and historical coordinates,
+fresh-survey cache exclusion and an estimated-range circle that includes hopped RF.
+Use synthetic data for location screenshots/tests; do not save real location images.
+
+On each selected phone, verify the Radio connection color and short/long names with
+capture stopped and running. Start a bounded node test, Stop, immediately select a
+different cached node and require a queued/running state followed by a submission.
+In Map enable Active survey, explicitly start, inspect fresh RF discoveries and the
+unlocated list, then Stop. Select the older dated survey; restart the app and confirm
+its retained nodes/positions. Run a new survey and require the map to start empty.
+Tests of a very large real network are explicit, attended work; ordinary tests never
+start the all-node queue. Cached coordinates can be stale and are labelled as such.
+
+Switch the connected radio and require Activity, Mesh and survey history to change
+together, including while a packet is expanded. Return to the first radio and require
+its own history. Profiles remain shared. Remove profile must leave its installed
+channel intact; Remove from radio must retain its saved profile. Use a disposable
+private profile and restore the working private channel after radio acceptance.
+
+Shutdown is covered with an addressed fake API and the two-step Android confirmation.
+Physical shutdown requires someone to power the radio back on; do not shut down an
+unattended outdoor radio just to test the button. Battery broadcast enabling currently
+opens the pinned Meshtastic app with device-telemetry instructions because local
+module-config read-back is absent from its external API. No unseen module config is
+overwritten and enabled status is never inferred from a battery reading.
+
+Opt-in regressions, after installing app and instrumentation APKs, on one explicitly
+selected lab phone at a time:
+
+```powershell
+adb -s SERIAL shell am instrument -w -e class com.hardlinelabs.relay.PublicMeshAcceptanceTest#immediateNextNodeAndActiveSurveyHistory -e surveyRegression true com.hardlinelabs.relay.test/androidx.test.runner.AndroidJUnitRunner
+adb -s SERIAL shell am instrument -w -e class com.hardlinelabs.relay.ChannelAcceptanceTest -e channelRegression true com.hardlinelabs.relay.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+The first submits only a few addressed checks and stops; the second uses a disposable
+private profile, verifies independent deletion, and restores the prior verified
+active configuration. It requires that prior activation evidence to match the live
+radio before writing. An unverified failure keeps the profile and pause state for
+inspection. Neither test prints configuration protobufs, keys or coordinates.

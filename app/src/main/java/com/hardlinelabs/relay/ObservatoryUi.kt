@@ -18,7 +18,8 @@ import java.util.Locale
 class ObservatoryUi(private val activity: Activity, private val atak: View,
                     private val startCapture: () -> Unit, private val export: (List<RadioEvent>) -> Unit,
                     private val usePhoneGps: () -> Unit,
-                    private val stateSource: (() -> MonitorState)? = null) : LinearLayout(activity) {
+                    private val stateSource: (() -> MonitorState)? = null,
+                    private val shutdownRadio: (Int) -> Unit = { RadioMonitorService.instance?.shutdownRadio(it) }) : LinearLayout(activity) {
     private val ui = RadioUi(activity)
     private val handler = Handler(Looper.getMainLooper())
     private val body = FrameLayout(activity)
@@ -30,12 +31,13 @@ class ObservatoryUi(private val activity: Activity, private val atak: View,
     private val pages = mutableMapOf<Int, View>()
     private val radioBindings = mutableListOf<(MonitorState) -> Unit>()
     private var page = 0
-    private var lastState = stateSource?.invoke() ?: MonitorState(message = "Capture stopped", events = ObservationStore(activity).use { it.read() })
+    private var lastState = stateSource?.invoke() ?: retainedState(activity)
     private var feed: PacketFeed? = null
     private var map: SatelliteMap? = null
     private var meshPage: MeshPage? = null
     private var inspector: NodeInspector? = null
     private var foreground = false
+    private var displayedRadio = 0
     private val tick = object : Runnable { override fun run() { refresh(); handler.postDelayed(this, 1000) } }
     init {
         orientation = VERTICAL; setBackgroundColor(ui.bg)
@@ -54,13 +56,23 @@ class ObservatoryUi(private val activity: Activity, private val atak: View,
         }
         addView(navigation); showPage(0)
     }
+    fun connectionSnapshot(details: MonitorState) {
+        if (RadioMonitorService.instance != null) return
+        if (!details.connected) { lastState = lastState.copy(connected = false, message = details.message); refresh(); return }
+        if (details.local != 0 && lastState.local != details.local) lastState = retainedState(activity, details.local)
+        lastState = lastState.copy(connected = details.connected, local = details.local.takeIf { it != 0 } ?: lastState.local,
+            shortName = details.shortName, longName = details.longName, battery = details.battery, voltage = details.voltage,
+            utilization = details.utilization, airtime = details.airtime, metricTime = details.metricTime, uptime = details.uptime,
+            context = details.context, message = details.message)
+        refresh()
+    }
     fun resume() { foreground = true; handler.removeCallbacks(tick); handler.post(tick); if (page == 2) map?.resumeMap() }
     fun pause() { foreground = false; handler.removeCallbacks(tick); map?.pauseMap() }
     fun destroy() { pause(); map?.destroy() }
     fun showAtak() = showPage(4)
     fun back(): Boolean { if (inspector == null) return false; closeInspector(); return true }
     private fun state(): MonitorState = stateSource?.invoke() ?: RadioMonitorService.instance?.state?.also { lastState = it }
-        ?: lastState.copy(connected = false, surveying = false)
+        ?: lastState.copy(surveying = false)
     private fun capturing() = stateSource != null || RadioMonitorService.instance != null
     private fun showPage(index: Int) {
         closeInspector(); pages[page]?.visibility = GONE
@@ -83,10 +95,16 @@ class ObservatoryUi(private val activity: Activity, private val atak: View,
     }
     private fun refresh() {
         val s = state()
+        if (displayedRadio != s.local) { closeInspector(); feed?.clearView(); displayedRadio = s.local }
         connection.update(if (!capturing()) "Capture stopped · retained history" else s.message)
         updateTestBanner(s)
         when (page) { 0 -> radioBindings.forEach { it(s) }; 1 -> meshPage?.update(s); 2 -> map?.update(s); 3 -> feed?.update(s) }
-        inspector?.update(s)
+        inspector?.update(if (page == 2) map?.inspectionState() ?: s else s)
+        navButtons.first().apply {
+            setTextColor(if (s.connected) ui.mint else android.graphics.Color.rgb(255, 160, 150))
+            backgroundTintList = android.content.res.ColorStateList.valueOf(if (s.connected)
+                android.graphics.Color.rgb(24, 75, 61) else android.graphics.Color.rgb(100, 47, 50))
+        }
     }
     private fun updateTestBanner(s: MonitorState) {
         val completed = s.surveyCompletedAt > 0 && android.os.SystemClock.elapsedRealtime() - s.surveyCompletedAt in 0..30_000
@@ -106,7 +124,7 @@ class ObservatoryUi(private val activity: Activity, private val atak: View,
             { selected -> showPage(2); map?.focus(selected.id) }).also {
             // The underlying page stays attached, preserving map camera and list position.
             pages[page]?.visibility = INVISIBLE
-            body.addView(it, FrameLayout.LayoutParams(-1, -1)); it.update(state())
+            body.addView(it, FrameLayout.LayoutParams(-1, -1)); it.update(if (page == 2) map?.inspectionState() ?: state() else state())
         }
     }
     private fun closeInspector() { inspector?.let { body.removeView(it) }; inspector = null; pages[page]?.visibility = VISIBLE }
@@ -149,9 +167,31 @@ class ObservatoryUi(private val activity: Activity, private val atak: View,
         live(health, 16f) { "TX airtime  ${it.airtime?.let { v -> "%.1f%%".format(Locale.US, v) } ?: "Unavailable"}" }
         live(health, 16f) { "Uptime  ${it.uptime?.let { v -> "${v / 3600}h ${(v % 3600) / 60}m" } ?: "Unavailable"}" }
         live(health, 12f, ui.muted) { "Cached metrics · ${age(it.metricTime)}" }
+        val power = ui.card(root, "POWER METRICS")
+        live(power, 16f) { "Battery ${when (it.battery) { null, 0 -> "Unavailable"; 101 -> "External power"; else -> "${it.battery}%" }} · ${it.voltage?.let { v -> "%.2f V".format(Locale.US, v) } ?: "Voltage unavailable"}" }
+        live(power, 12f, ui.muted) { "Radio-reported reading · ${age(it.metricTime)}" }
+        ui.label(power, "Battery broadcast setting: unavailable through Meshtastic 2.7.13's external API. Device telemetry shares battery level; the separate power-sensor setting is not required.", 12f, ui.muted)
+        ui.button(power, "Enable battery sharing in Meshtastic") {
+            AlertDialog.Builder(activity).setTitle("Enable battery broadcasts")
+                .setMessage("In Meshtastic, open Radio configuration > Telemetry, enable Device metrics, then save. Relay cannot read this setting through the pinned API. Your current telemetry interval and other sensor settings can be preserved there.")
+                .setNegativeButton("Cancel", null).setPositiveButton("Open Meshtastic") { _, _ ->
+                    activity.packageManager.getLaunchIntentForPackage("com.geeksville.mesh")?.let(activity::startActivity)
+                }.show()
+        }
         val setup = ui.card(root, "CURRENT RADIO")
         live(setup, 18f) { s -> s.nodes.firstOrNull { it.number == s.local }?.name ?: "No radio selected" }
+        live(setup, 13f) { "Short name: ${it.shortName.ifBlank { "Unavailable" }} · ${it.local.toUInt().toString(16).padStart(8, '0')}" }
+        live(setup, 13f) { "Long name: ${it.longName.ifBlank { "Unavailable" }}" }
         live(setup, 13f, ui.muted) { it.context }
+        val shutdown = ui.button(setup, "Shutdown radio") {
+            val expected = state()
+            AlertDialog.Builder(activity).setTitle("Shutdown ${expected.longName.ifBlank { "radio" }}?")
+                .setMessage("Shuts down the connected radio. You must turn it back on physically to reconnect.")
+                .setNegativeButton("Cancel", null).setPositiveButton("Confirm shutdown") { _, _ ->
+                    shutdownRadio(expected.local)
+                }.show()
+        }.apply { tag = "radio-shutdown" }
+        radioBindings.add { shutdown.isEnabled = it.connected }
         ui.button(setup, "Refresh radio details") { RadioMonitorService.instance?.refreshRadio() }
         ui.button(setup, "Capture coverage", ::coverage)
         ui.button(setup, "Stop capture") { activity.stopService(Intent(activity, RadioMonitorService::class.java)); refresh() }
@@ -231,11 +271,32 @@ class ObservatoryUi(private val activity: Activity, private val atak: View,
                 3 -> coverage()
                 4 -> AlertDialog.Builder(activity).setTitle("Clear packet metadata?").setMessage("Deletes local activity history. Saved channel profiles remain available.")
                     .setNegativeButton("Cancel", null).setPositiveButton("Clear") { _, _ ->
-                        RadioMonitorService.instance?.clearHistory() ?: ObservationStore(activity).use { it.clear() }
+                        RadioMonitorService.instance?.clearHistory() ?: ObservationStore(activity).use { it.radio = lastState.local; it.clear() }
                         feed?.clearView(); lastState = lastState.copy(events = emptyList()); refresh()
                     }.show()
             }
         }.show()
     }
     private fun coverage() = explain("Capture coverage", "Relay records received packet events exposed by Meshtastic and its own diagnostic submissions. TX is an API submission, not proof of an RF transmission. Activity shows only TX/RX; associated statuses update TX cards and appear in their expanded history.\n\nThe API does not expose every forwarded packet, retry, corrupt reception or undecryptable packet. Other apps' outbound submissions are incomplete. Encryption and rebroadcast flags are not exposed reliably and are omitted. Hops counts observed relays, not the configured maximum.\n\nRSSI/SNR describes the final reception. Payload size excludes RF headers. Positions are reported coordinates, not verified GPS fixes or RF distance estimates. Radio condition is cached telemetry with its age shown.\n\nMap imagery requires internet and has detailed U.S. coverage. Only requested map tile coordinates reach USGS; node metadata stays on the phone. The exported Meshtastic broadcast API is not sender-authenticated. No survey starts automatically.")
+}
+
+/** Opening the app offline restores only the last identified radio, never the old mixed history. */
+private fun retainedState(context: android.content.Context, radio: Int? = null): MonitorState = ObservationStore(context).use { store ->
+    store.radio = radio ?: store.latestRadio()
+    val saved = store.snapshot()
+    val records = saved?.optJSONArray("surveys")
+    val details = saved?.optJSONObject("details") ?: org.json.JSONObject()
+    MonitorState(message = "Capture stopped · retained radio data", local = store.radio,
+        shortName = details.optString("shortName"), longName = details.optString("longName"), context = details.optString("context"),
+        battery = if (details.has("battery")) details.getInt("battery") else null,
+        voltage = if (details.has("voltage")) details.getDouble("voltage").toFloat() else null,
+        utilization = if (details.has("utilization")) details.getDouble("utilization").toFloat() else null,
+        airtime = if (details.has("airtime")) details.getDouble("airtime").toFloat() else null,
+        uptime = if (details.has("uptime")) details.getInt("uptime") else null, metricTime = details.optLong("metricTime"),
+        nodes = readNodes(saved?.optJSONArray("nodes")), events = if (store.radio != 0) store.read() else emptyList(),
+        surveys = records?.let { a -> (0 until a.length()).mapNotNull {
+            runCatching { SurveyRecord.read(a.getJSONObject(it)) }.getOrNull()?.let { r ->
+                if (r.ended == 0L) r.copy(ended = System.currentTimeMillis(), result = "Capture interrupted; survey not resumed") else r
+            }
+        } }.orEmpty())
 }
