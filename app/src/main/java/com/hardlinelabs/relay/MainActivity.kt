@@ -115,8 +115,12 @@ class MainActivity : Activity() {
                 val profile = store.snapshot()
                 val index = profile.active?.optInt("index", -1) ?: -1
                 val channel = current.channels.settings.getOrNull(index)
-                checks.add(AtakCompatibility.Finding(if (channel == null || index <= 0) "CHECK" else if (channel.psk.size != 32 || channel.uplink_enabled || channel.downlink_enabled) "BLOCKED" else "OK",
-                    if (channel == null || index <= 0) "No verified active private profile. Activate one in Relay." else "Active private channel: ${channel.name}. Requires a 32-byte PSK and MQTT uplink/downlink off; teammate key equality cannot be checked locally."))
+                val active = profile.active
+                val verified = active != null && active.optInt("node") == current.node && index > 0 &&
+                    current.config.lora?.channel_num == active.optInt("slot") && current.config.lora?.override_frequency == 0f &&
+                    channel?.let { ChannelProfile.digest(it.encode()) } == active.optString("fingerprint")
+                checks.add(AtakCompatibility.Finding(if (!verified || channel == null) "CHECK" else if (channel.psk.size != 32 || channel.uplink_enabled || channel.downlink_enabled) "BLOCKED" else "OK",
+                    if (!verified || channel == null) "Saved activation does not match the live radio/channel settings. Activate and verify the intended profile in Relay." else "Active private channel: ${channel.name}. Requires a 32-byte PSK and MQTT uplink/downlink off; teammate key equality cannot be checked locally."))
                 if (profile.switching) checks.add(AtakCompatibility.Finding("BLOCKED", "Channel activation needs verification in Relay."))
                 AtakCompatibility.text(checks)
             }.getOrElse { "Scan incomplete · ${it.message}" }
