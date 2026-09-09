@@ -9,14 +9,16 @@ import org.json.JSONObject
 
 /** Bounded, private metadata history. Only explicitly selected fields can reach disk/export. */
 class ObservationStore(context: Context, name: String = "radio-observations.db") :
-    SQLiteOpenHelper(context, name, null, 3) {
+    SQLiteOpenHelper(context, name, null, 4) {
     var radio: Int = 0
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, time INTEGER NOT NULL, metadata TEXT NOT NULL, radio INTEGER NOT NULL DEFAULT 0)")
         createRadios(db)
         createSurveys(db)
+        createCongestion(db)
     }
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 4) createCongestion(db)
         if (oldVersion < 2) {
             db.execSQL("ALTER TABLE events ADD COLUMN radio INTEGER NOT NULL DEFAULT 0")
             createRadios(db)
@@ -32,6 +34,24 @@ class ObservationStore(context: Context, name: String = "radio-observations.db")
                 }
             }
         }
+    }
+    private fun createCongestion(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE congestion (radio INTEGER NOT NULL, time INTEGER NOT NULL, busy REAL NOT NULL, context TEXT NOT NULL, PRIMARY KEY (radio, time))")
+    }
+    @Synchronized fun congestionSample(time: Long, busy: Float, context: String, now: Long = System.currentTimeMillis()): Boolean {
+        if (radio == 0 || time <= 0 || now - time !in 0..900_000 || !busy.isFinite() || busy !in 0f..100f) return false
+        val db = writableDatabase
+        val inserted = db.insertWithOnConflict("congestion", null, ContentValues().apply {
+            put("radio", radio); put("time", time); put("busy", busy); put("context", context)
+        }, SQLiteDatabase.CONFLICT_IGNORE) != -1L
+        db.delete("congestion", "time < ?", arrayOf((now - 7 * 86_400_000L).toString()))
+        db.execSQL("DELETE FROM congestion WHERE radio = ? AND time NOT IN (SELECT time FROM congestion WHERE radio = ? ORDER BY time DESC LIMIT 10080)", arrayOf(radio, radio))
+        return inserted
+    }
+    @Synchronized fun congestion(): List<CongestionSample> = readableDatabase.rawQuery(
+        "SELECT time, busy, context FROM congestion WHERE radio = ? AND time >= ? ORDER BY time",
+        arrayOf(radio.toString(), (System.currentTimeMillis() - 7 * 86_400_000L).toString())).use { c ->
+        buildList { while (c.moveToNext()) add(CongestionSample(c.getLong(0), c.getFloat(1), c.getString(2))) }
     }
     private fun createSurveys(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE surveys (radio INTEGER NOT NULL, id TEXT NOT NULL, started INTEGER NOT NULL, record TEXT NOT NULL, PRIMARY KEY (radio, id))")
@@ -62,6 +82,7 @@ class ObservationStore(context: Context, name: String = "radio-observations.db")
             db.execSQL("DELETE FROM radios WHERE radio NOT IN (SELECT radio FROM radios ORDER BY touched DESC LIMIT 8)")
             db.execSQL("DELETE FROM events WHERE radio NOT IN (SELECT radio FROM radios)")
             db.execSQL("DELETE FROM surveys WHERE radio NOT IN (SELECT radio FROM radios)")
+            db.execSQL("DELETE FROM congestion WHERE radio NOT IN (SELECT radio FROM radios)")
             db.setTransactionSuccessful()
         } finally { db.endTransaction() }
     }
@@ -98,7 +119,10 @@ class ObservationStore(context: Context, name: String = "radio-observations.db")
         }.reversed()
     }
 
-    @Synchronized fun clear() { writableDatabase.delete("events", "radio = ?", arrayOf(radio.toString())) }
+    @Synchronized fun clear() {
+        writableDatabase.delete("events", "radio = ?", arrayOf(radio.toString()))
+        writableDatabase.delete("congestion", "radio = ?", arrayOf(radio.toString()))
+    }
 
     companion object {
         fun encode(e: RadioEvent) = JSONObject().apply {

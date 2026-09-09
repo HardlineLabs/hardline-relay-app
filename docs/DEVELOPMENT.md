@@ -233,3 +233,36 @@ private profile, verifies independent deletion, and restores the prior verified
 active configuration. It requires that prior activation evidence to match the live
 radio before writing. An unverified failure keeps the profile and pause state for
 inspection. Neither test prints configuration protobufs, keys or coordinates.
+
+
+## Congestion history and compatibility (0.9)
+
+On Radio, start capture, choose a history window and scrub actual channel-utilization
+readings. The selected timestamp must stay selected as new telemetry arrives;
+Latest reading restores following. Gaps stay unknown. Change radios and require
+independent history, then restart and inspect retained samples. Storage tests cover
+zero/invalid values, duplicate telemetry, reopening, seven-day/10,080-row bounds
+and the eight-radio eviction rule. No extra telemetry broadcasts are requested.
+
+In HARDLINE ATAK, run Compatibility for ATAK and require readable settings plus
+explicit unknowns, including remote configuration and unavailable module settings.
+The scan is read-only. CORE_PORTNUMS_ONLY blocks private application reception;
+Text transport on every peer is an explicit fallback, not a promise of delivery.
+
+For bounded two-phone transport comparison, install both APKs, activate the same
+private profile/key on each radio, and start these commands concurrently with the
+same future Unix-millisecond START and verified SLOT. Use role 0 on the first phone
+and role 1 on the second. Eight samples per phone are staggered over six minutes.
+
+```powershell
+adb -s SERIAL shell am instrument -w -e class com.hardlinelabs.relay.PrivateTransportAcceptanceTest#compareTextAndPrivateDelivery -e privateTransport true -e expectedSlot SLOT -e role ROLE -e start START com.hardlinelabs.relay.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+The test reports text, private without reliability, private with reliability and
+smaller reliable payload reception separately, plus end-to-end API latency. It
+checks radio/configuration continuity and does not create RF congestion. Ordinary
+instrumentation skips RF tests. Existing unlocked lab profiles can be selected
+with the same class's `activateNamedLabProfile` method and `-e configureProfile NAME`;
+this explicitly writes/activates that saved profile. `NAME=list` only lists names,
+lock state and frequency slots, never keys. Keep both phones on a verified matching
+profile after acceptance.
