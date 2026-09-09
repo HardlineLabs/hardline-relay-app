@@ -161,6 +161,9 @@ class ObservatoryUi(private val activity: Activity, private val atak: View,
         val chart = TrafficChart(activity); traffic.addView(chart, LayoutParams(-1, ui.dp(90)))
         radioBindings.add { chart.update(recent(it)) }
         live(traffic, 13f) { s -> val e = recent(s); "${e.count { it.direction == "RX" }} RX · ${e.count { it.direction == "TX" }} TX submissions" }
+        val congestion = ui.card(root, "CHANNEL CONGESTION")
+        val congestionChart = CongestionChart(activity); congestion.addView(congestionChart)
+        radioBindings.add { congestionChart.update(it.local, it.congestion) }
         val health = ui.card(root, "RADIO-REPORTED CONDITION")
         live(health, 16f) { "Power  ${when (it.battery) { null, 0 -> "Unknown"; 101 -> "External power"; else -> "${it.battery}%" }}" }
         live(health, 16f) { "Channel busy  ${it.utilization?.let { v -> "%.1f%%".format(Locale.US, v) } ?: "Unavailable"}" }
@@ -286,7 +289,7 @@ private fun retainedState(context: android.content.Context, radio: Int? = null):
     val saved = store.snapshot()
     val records = saved?.optJSONArray("surveys")
     val details = saved?.optJSONObject("details") ?: org.json.JSONObject()
-    MonitorState(message = "Capture stopped · retained radio data", local = store.radio,
+    MonitorState(message = "Capture stopped · retained radio data", local = store.radio, congestion = store.congestion(),
         shortName = details.optString("shortName"), longName = details.optString("longName"), context = details.optString("context"),
         battery = if (details.has("battery")) details.getInt("battery") else null,
         voltage = if (details.has("voltage")) details.getDouble("voltage").toFloat() else null,

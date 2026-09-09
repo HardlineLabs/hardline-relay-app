@@ -94,6 +94,42 @@ class MainActivity : Activity() {
     private var lastTest = -5000L
     @Volatile private var unlockAfter = 0L
 
+    private fun compatibilityScan() {
+        val api = service
+        if (api == null) { AlertDialog.Builder(this).setTitle("Compatibility for ATAK").setMessage("Radio unavailable. Open Meshtastic and connect first.").setPositiveButton("OK", null).show(); return }
+        worker.execute {
+            val report = runCatching {
+                val current = MeshChannelClient(api).read()
+                val checks = AtakCompatibility.settings(current.config).toMutableList()
+                val own = api.nodes.orEmpty().firstOrNull { it.num == current.node }?.deviceMetrics
+                val version = packageManager.getPackageInfo("com.geeksville.mesh", 0).versionCode
+                checks.add(0, AtakCompatibility.Finding(if (version == 29320069) "OK" else "BLOCKED", "Meshtastic Android must be 2.7.13; installed code $version."))
+                val firmware = api.myNodeInfo?.firmwareVersion
+                checks.add(1, AtakCompatibility.Finding(if (firmware == "2.7.15.567b8ea") "OK" else "BLOCKED", "Radio firmware: $firmware; supported 2.7.15.567b8ea."))
+                val age = own?.time?.toLong()?.let { System.currentTimeMillis() / 1000 - it }
+                val busy = own?.channelUtilization?.takeIf { it.isFinite() && it in 0f..100f }
+                checks.add(AtakCompatibility.Finding(if (age == null || age !in 0..900 || busy == null || busy >= 50) "CHECK" else "OK",
+                    "Channel busy: ${busy?.let { "%.1f%%".format(java.util.Locale.US, it) } ?: "unavailable"}; reading ${age?.let { "${it}s old" } ?: "age unknown"}. Congestion can delay or lose packets."))
+                val gps = packageManager.checkPermission(Manifest.permission.ACCESS_FINE_LOCATION, "com.atakmap.app.civ") == PackageManager.PERMISSION_GRANTED
+                checks.add(AtakCompatibility.Finding(if (gps) "OK" else "BLOCKED", "ATAK precise-location permission ${if (gps) "granted; a fresh GPS fix is still needed" else "missing"}."))
+                val profile = store.snapshot()
+                val index = profile.active?.optInt("index", -1) ?: -1
+                val channel = current.channels.settings.getOrNull(index)
+                val active = profile.active
+                val verified = active != null && active.optInt("node") == current.node && index > 0 &&
+                    current.config.lora?.channel_num == active.optInt("slot") && current.config.lora?.override_frequency == 0f &&
+                    channel?.let { ChannelProfile.digest(it.encode()) } == active.optString("fingerprint")
+                checks.add(AtakCompatibility.Finding(if (!verified || channel == null) "CHECK" else if (channel.psk.size != 32 || channel.uplink_enabled || channel.downlink_enabled) "BLOCKED" else "OK",
+                    if (!verified || channel == null) "Saved activation does not match the live radio/channel settings. Activate and verify the intended profile in Relay." else "Active private channel: ${channel.name}. Requires a 32-byte PSK and MQTT uplink/downlink off; teammate key equality cannot be checked locally."))
+                if (profile.switching) checks.add(AtakCompatibility.Finding("BLOCKED", "Channel activation needs verification in Relay."))
+                AtakCompatibility.text(checks)
+            }.getOrElse { "Scan incomplete · ${it.message}" }
+            runOnUiThread { if (!isDestroyed) {
+                val text = TextView(this).apply { this.text = report; textSize = 15f; setPadding(dp(20), dp(10), dp(20), dp(10)); setTextIsSelectable(true) }
+                AlertDialog.Builder(this).setTitle("Compatibility for ATAK").setView(ScrollView(this).apply { addView(text) }).setPositiveButton("Done", null).show()
+            } }
+        }
+    }
     private fun dp(n: Int) = (resources.displayMetrics.density * n).toInt()
     private fun column() = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
     private fun text(parent: LinearLayout, value: String, size: Float = 15f, color: Int = ink): TextView = TextView(this).apply {
@@ -129,6 +165,7 @@ class MainActivity : Activity() {
         val connectionCard = card(layout)
         status = text(connectionCard, "Connecting to radio…", 16f)
         button(connectionCard, "Refresh radio") { if (service == null) { disconnect(); bindMesh() } else refresh() }
+        button(connectionCard, "Compatibility for ATAK") { compatibilityScan() }
         val actions = card(layout)
         button(actions, "Create channel") { createDialog() }
         button(actions, "Scan channel QR") {
