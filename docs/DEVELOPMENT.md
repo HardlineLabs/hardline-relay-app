@@ -266,3 +266,12 @@ with the same class's `activateNamedLabProfile` method and `-e configureProfile 
 this explicitly writes/activates that saved profile. `NAME=list` only lists names,
 lock state and frequency slots, never keys. Keep both phones on a verified matching
 profile after acceptance.
+
+
+The 0.9 nearby lab check received all 16 bounded RF samples on a matching private
+profile, with receiver means of 1,188 and 2,427 ms and a maximum of 2,957 ms. This
+is only two samples per mode/direction on a quiet channel, not congestion testing.
+The live Radio chart retained a scrubbed 4.1% reading as its sample count grew from
+three to seven. The read-only scan reported the live pins, ALL/CLIENT configuration,
+private profile and actual telemetry while retaining explicit unverified items.
+The companion plugin owns the application-level recovery/host acceptance results.

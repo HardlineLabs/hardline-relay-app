@@ -68,7 +68,8 @@ receiving a delayed packet never makes it fresh. Older fixes cannot reverse a ne
 position, duplicates cannot renew its age, and fixes over 30 seconds in the future
 are rejected. Clock disagreement remains a reason to check phone time.
 
-Connection details show attempted submissions, retry count, payload bytes attempted,
+Connection details show attempted submissions, retry count, binary bytes attempted
+(before optional text encoding),
 confirmed/expired outbox messages, private API receptions, rejection reason and the
 latest exposed radio status. These are session diagnostics, not complete radio
 queue/RF counters. Exported Meshtastic broadcasts remain an untrusted app boundary;
