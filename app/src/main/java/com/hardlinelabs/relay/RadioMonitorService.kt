@@ -29,6 +29,7 @@ data class MonitorState(
     val longName: String = "",
     val surveys: List<SurveyRecord> = emptyList(),
     val activeSurvey: String = "",
+    val congestion: List<CongestionSample> = emptyList(),
     val utilization: Float? = null,
     val airtime: Float? = null,
     val uptime: Int? = null,
@@ -63,6 +64,7 @@ class RadioMonitorService : Service() {
     private var receiverRegistered = false
     private var radio: MeshChannelClient.Snapshot? = null
     private var fingerprint = ""
+    private var contextSince = System.currentTimeMillis()
     private var survey: RadioSurvey? = null
     private var announcedResult = ""
     private var lastPoll = 0L
@@ -184,6 +186,7 @@ class RadioMonitorService : Service() {
                 }
             }
             events.addAll(history.read())
+            state = state.copy(congestion = history.congestion())
         }
         val changed = ChannelProfile.digest(current.config.encode() + current.channels.encode()) + current.node
         if (fingerprint.isNotEmpty() && fingerprint != changed) {
@@ -194,6 +197,7 @@ class RadioMonitorService : Service() {
             record("Radio context changed", "Fresh observations are required for this radio configuration.")
         }
         if (!state.connected) record("Radio connected", "Metadata collection resumed. Cached nodes are not newly heard nodes.")
+        if (fingerprint != changed) contextSince = System.currentTimeMillis()
         fingerprint = changed
         radio = current
         val lora = current.config.lora
@@ -222,6 +226,10 @@ class RadioMonitorService : Service() {
             shortName = cleanName(ownNode?.user?.shortName.orEmpty()), longName = cleanName(ownNode?.user?.longName.orEmpty()), utilization = local?.channelUtilization?.takeIf { it.isFinite() && it in 0f..100f },
             airtime = local?.airUtilTx?.takeIf { it.isFinite() && it in 0f..100f }, uptime = local?.uptimeSeconds,
             metricTime = local?.time?.toLong()?.times(1000) ?: 0)
+        val busy = state.utilization
+        if (busy != null && state.metricTime >= contextSince && history.congestionSample(state.metricTime, busy, context)) {
+            state = state.copy(congestion = history.congestion())
+        }
     }
 
     @Suppress("DEPRECATION")
@@ -464,7 +472,7 @@ class RadioMonitorService : Service() {
         }
     }
     fun markComparison() = execute { record("Comparison marker", "Antenna or location comparison begins here. Compare observations before and after this point.") }
-    fun clearHistory() = execute { history.clear(); events.clear(); record("History cleared", "Previous metadata was removed from this device.") }
+    fun clearHistory() = execute { history.clear(); events.clear(); state = state.copy(congestion = emptyList()); record("History cleared", "Previous metadata was removed from this device.") }
 
     private fun saveRadio() {
         if (history.radio == 0) return

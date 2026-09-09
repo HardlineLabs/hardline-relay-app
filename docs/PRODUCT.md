@@ -219,3 +219,25 @@ The read-only metadata provider exports labels and activation evidence, never ke
 The original core AES-GCM helper is a JVM crypto test, separate from Meshtastic's
 radio cipher. The new profile encryption is for stored provisioning packages,
 not an additional layer around radio packets.
+
+## Channel congestion and ATAK compatibility (0.9)
+
+Radio includes a channel-congestion chart with 10-minute, 1-hour, 6-hour, 24-hour
+and 7-day windows, plus a scrubber for individual radio telemetry readings. The
+0–100% scale is fixed; empty time is unknown, not zero or interpolated utilization.
+Each point shows its timestamp and RF context. Capture records new local telemetry,
+not repeated polls of a cached value or metrics predating a configuration change.
+History is local per radio, bounded to seven days / 10,080 readings, within the
+existing eight-radio limit. Clear history removes that radio's congestion readings.
+Cached current readings remain separately labelled. No extra RF poll is needed.
+
+HARDLINE ATAK's **Compatibility for ATAK** is a read-only scan of accessible settings:
+software/firmware pins, transmission enabled, supported LoRa settings/hops, private
+port filtering, device role, power saving, Bluetooth, cached congestion, ATAK GPS
+permission and pending activation. CORE_PORTNUMS_ONLY is blocking because it can
+reject private ATAK traffic while standard text works. Unknown fields and inaccessible
+module/host/peer settings are explicitly unverified. No blocker found is not a
+promise of delivery. The scan changes no settings and exposes no keys or positions.
+
+The companion plugin's compact PLI and recovery behavior is specified once in
+[the current wire contract](../protocol/pli-v2.md).

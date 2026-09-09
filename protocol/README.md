@@ -14,3 +14,5 @@ Radio connectivity, observed peer communication and TAK server connectivity are
 independent. Submission is not delivery. A receipt is application processing evidence
 on the supported trusted-phone setup, not proof of human observation or identity.
 The standalone harness remains explicitly labelled as a simulation.
+
+Current compact PLI/recovery: [plugin 0.6 contract](pli-v2.md). Legacy formats remain documented for decoding.
