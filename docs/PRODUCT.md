@@ -113,6 +113,46 @@ can be old or coarse. Without origin/received-node coordinates the circle is
 unavailable. An available radio position is preferred; optional phone GPS can supply
 the origin when the phone represents the radio's placement.
 
+### Node discovery (0.10)
+
+Map has separate **Active survey** and **Node discovery** view toggles. Select
+Node discovery, then Start discovery. Discovery starts with an empty evidence map;
+only remote origins received over LoRa during that session enter its map or
+unlocated list. Teal means absent from the starting Relay/Meshtastic cache; blue
+means known at the start and heard again during discovery. Text labels distinguish
+both. Cached-only nodes, MQTT, local packets and unverified transport do not qualify.
+New means new to this session's starting cache, not proof that our request caused
+the arrival. Names and reported coordinates can fill in after reception; discovery
+does not require or request a position. The local origin is shown separately when
+available. Last-RF ages remain visible as heard nodes age within the session.
+
+Discovery uses the pinned API's native `requestUserInfo(-1)`: our radio's User
+announcement on primary channel 0, with `NODEINFO_APP` and replies requested.
+It preserves configured RF settings and hop limit. It never sends public chat,
+phone GPS or configuration writes. The first request respects outstanding radio
+spacing; subsequent requests are at least ten minutes apart. A fresh utilization
+reading of 40% or more pauses requests while listening continues. Start/Stop and
+capture/process restarts preserve the per-radio request cooldown. Failed submissions
+stop discovery and retain the cooldown. Other apps and firmware can send separately.
+
+Discovery continues until Stop, capture/connection loss, radio/configuration change,
+or profile activation; it never resumes automatically after interruption. The two
+survey modes and individual-node tests cannot transmit concurrently. Changing a
+view toggle selects a map; use Stop discovery (also reachable from the running
+header or Radio page) to end the session. Stop prevents further submissions but
+cannot retract a request already handed to Meshtastic.
+
+Discovery and active-survey histories have separate pickers and share the existing
+20-session/1,000-heard-nodes-per-session retention bounds. Estimated range includes
+hopped origins and uses reported coordinates, as in Active survey. Reaching the
+node storage cap does not increase RF traffic or terminate listening.
+
+The API exposes neither this native request's packet ID nor verified RF submission.
+Activity therefore says Submitted to Meshtastic, not delivered. Firmware cooldowns,
+congestion, radio roles, incompatible channels and range can prevent replies.
+Discovery is an observation of the tuned mesh, not a frequency sweep or complete
+census. Silence never establishes that a node is absent.
+
 ### Radio controls
 
 The Radio tab is green when connected and red when disconnected. The page shows

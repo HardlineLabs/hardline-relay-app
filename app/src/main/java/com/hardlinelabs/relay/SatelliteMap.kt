@@ -25,7 +25,12 @@ internal class SatelliteMap(context: Context, private val inspect: (RadioNode) -
     private var state = MonitorState()
     private var significant = emptyList<RadioNode>()
     private val candidates = ui.list()
-    private var surveyMode = false
+    private var historyMode = false
+    private var discoveryMode = false
+    private var changingMode = false
+    private val surveyToggle: Switch
+    private val discoveryToggle: Switch
+    private var displayedRecord: SurveyRecord? = null
     private var selectedSurvey = ""
     private var lastActiveSurvey = ""
     private var lastRadio = 0
@@ -47,25 +52,37 @@ internal class SatelliteMap(context: Context, private val inspect: (RadioNode) -
         override fun getView(position: Int, convertView: View?, parent: ViewGroup): View =
             (convertView as? TextView ?: TextView(context).apply { setTextColor(ui.ink); textSize = 13f; setPadding(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(8)); minHeight = ui.dp(50) }).apply {
                 val n = significant[position]
-                val ack = !surveyMode && n.acknowledged > 0 && System.currentTimeMillis() - n.acknowledged in 0..600_000
-                text = "${n.name}\n${if (surveyMode) "Last RF" else if (ack) "Destination acknowledged" else "Repeated direct receptions"} · ${age(if (ack) n.acknowledged else n.observed)}"
+                setTextColor(if (!discoveryMode) ui.ink else android.graphics.Color.parseColor(
+                    if (n.number in displayedRecord?.newNodes.orEmpty()) "#5ddac4" else "#74aaff"))
+                val ack = !historyMode && n.acknowledged > 0 && System.currentTimeMillis() - n.acknowledged in 0..600_000
+                text = "${n.name}\n${if (discoveryMode) displayedRecord?.discoveryLabel(n.number) + " · Last RF" else if (historyMode) "Last RF" else if (ack) "Destination acknowledged" else "Repeated direct receptions"} · ${age(if (ack) n.acknowledged else n.observed)}"
             }
     }
     init {
         orientation = VERTICAL
+        tag = "map-panel"
         val mode = Switch(context).apply { text = "Active survey"; setTextColor(ui.ink); tag = "survey-mode" }
-        addView(mode)
+        surveyToggle = mode
+        val discovery = Switch(context).apply { text = "Node discovery"; setTextColor(ui.ink); tag = "discovery-mode" }
+        discoveryToggle = discovery
+        val modes = ui.row(); addView(modes)
+        modes.addView(mode, LayoutParams(0, -2, 1f)); modes.addView(discovery, LayoutParams(0, -2, 1f))
         surveyControls = ui.column(); addView(surveyControls)
         val surveyRow = ui.row(); surveyControls.addView(surveyRow)
         surveyPicker = ui.button(surveyRow, "Survey history") {
-            val records = state.surveys
-            AlertDialog.Builder(context).setTitle("Surveys for this radio")
+            val records = state.surveys.filter { it.discovery == discoveryMode }
+            AlertDialog.Builder(context).setTitle(if (discoveryMode) "Discoveries for this radio" else "Surveys for this radio")
                 .setItems(records.map { "${surveyDate(it.started)} · ${it.nodes.size} heard${if (it.ended == 0L) " · Running" else ""}" }.toTypedArray()) { _, i ->
                     selectedSurvey = records[i].id; update(state)
                 }.setNegativeButton("Close", null).show()
         }
         surveyAction = ui.button(surveyRow, "Start survey") {
-            if (state.activeSurvey.isNotEmpty()) RadioMonitorService.instance?.stopSurvey()
+            if (state.activeSurvey.isNotEmpty() || state.activeDiscovery.isNotEmpty()) RadioMonitorService.instance?.stopSurvey()
+            else if (discoveryMode) AlertDialog.Builder(context).setTitle("Discover nodes?")
+                .setMessage("Announces your radio's identity on its primary channel and asks for node information, at most once every ten minutes. Keeps listening until Stop; busy channels pause requests. Teal: absent from the starting cache. Blue: known nodes heard during discovery. Only fresh LoRa arrivals appear. Replies and locations are not guaranteed.")
+                .setNegativeButton("Cancel", null).setPositiveButton("Start discovery") { _, _ ->
+                    RadioMonitorService.instance?.startDiscovery()
+                }.show()
             else AlertDialog.Builder(context).setTitle("Survey this mesh?")
                 .setMessage("Tests every known node once, with two addressed checks per node. Newly discovered nodes join the queue. Waits between requests and pauses when the channel is busy. A large mesh can take hours. Stop at any time; no public chat is sent.")
                 .setNegativeButton("Cancel", null).setPositiveButton("Start survey") { _, _ ->
@@ -77,7 +94,8 @@ internal class SatelliteMap(context: Context, private val inspect: (RadioNode) -
             setOnCheckedChangeListener { _, checked -> rangeEnabled = checked; update(state) }
         }; surveyControls.addView(rangeToggle)
         surveyInfo = ui.label(surveyControls, size = 12f, color = ui.muted)
-        mode.setOnCheckedChangeListener { _, checked -> surveyMode = checked; update(state) }
+        mode.setOnCheckedChangeListener { _, checked -> selectMode(checked, false) }
+        discovery.setOnCheckedChangeListener { _, checked -> selectMode(checked, true) }
         val controls = ui.row(); addView(controls)
         ui.button(controls, "Fit nodes") { web.evaluateJavascript("relayFit()", null) }
         ui.button(controls, "My GPS") { gps(); web.evaluateJavascript("relayLocal()", null) }
@@ -120,58 +138,80 @@ internal class SatelliteMap(context: Context, private val inspect: (RadioNode) -
         candidates.setOnItemClickListener { _, _, position, _ -> inspect(significant[position]) }
         web.loadUrl("https://appassets.androidplatform.net/map/map.html")
     }
+    private fun selectMode(checked: Boolean, discovery: Boolean) {
+        if (changingMode) return
+        changingMode = true
+        if (checked) {
+            surveyToggle.isChecked = !discovery
+            discoveryToggle.isChecked = discovery
+        }
+        historyMode = surveyToggle.isChecked || discoveryToggle.isChecked
+        discoveryMode = discoveryToggle.isChecked
+        selectedSurvey = ""; lastActiveSurvey = ""
+        changingMode = false
+        update(state)
+    }
+    fun showDiscovery() { discoveryToggle.isChecked = true }
     private fun updatePanel() {
         candidates.visibility = if (panelOpen && significant.isNotEmpty()) VISIBLE else GONE
         status.visibility = if (panelOpen) VISIBLE else GONE
-        panelTitle.update("${if (surveyMode) "Heard over RF" else "Significant relays"} · ${significant.size} unlocated ${if (panelOpen) "▾" else "▴"}")
+        panelTitle.update("${if (historyMode) "Heard over RF" else "Significant relays"} · ${significant.size} unlocated ${if (panelOpen) "▾" else "▴"}")
     }
     private fun surveyDate(time: Long) = java.text.SimpleDateFormat("MMM d, yyyy HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(time))
-    fun inspectionState(): MonitorState? = if (surveyMode) displayed else null
+    fun inspectionState(): MonitorState? = if (historyMode) displayed else null
     fun update(s: MonitorState) {
         state = s
         if (lastRadio != s.local) { selectedSurvey = ""; lastActiveSurvey = ""; lastRadio = s.local }
-        if (s.activeSurvey.isNotEmpty() && s.activeSurvey != lastActiveSurvey) selectedSurvey = s.activeSurvey
-        lastActiveSurvey = s.activeSurvey
-        val record = s.surveys.firstOrNull { it.id == selectedSurvey } ?: s.surveys.firstOrNull()
+        val activeId = if (discoveryMode) s.activeDiscovery else s.activeSurvey
+        val records = s.surveys.filter { it.discovery == discoveryMode }
+        if (activeId.isNotEmpty() && activeId != lastActiveSurvey) selectedSurvey = activeId
+        lastActiveSurvey = activeId
+        val record = records.firstOrNull { it.id == selectedSurvey } ?: records.firstOrNull()
+        displayedRecord = record
         selectedSurvey = record?.id.orEmpty()
-        surveyControls.visibility = if (surveyMode) VISIBLE else GONE
-        surveyPicker.update(record?.let { "${surveyDate(it.started)} · History" } ?: "No surveys yet")
-        surveyAction.update(if (s.activeSurvey.isNotEmpty()) "Stop survey" else "Start survey")
-        surveyAction.isEnabled = s.connected && (!s.surveying || s.activeSurvey.isNotEmpty())
+        surveyControls.visibility = if (historyMode) VISIBLE else GONE
+        surveyPicker.update(record?.let { "${surveyDate(it.started)} · History" } ?: "No history yet")
+        surveyAction.update(if (activeId.isNotEmpty()) if (discoveryMode) "Stop discovery" else "Stop survey"
+            else if (discoveryMode) "Start discovery" else "Start survey")
+        surveyAction.isEnabled = s.connected && (!s.surveying || activeId.isNotEmpty())
         val range = record?.rangeMeters()
         rangeToggle.isEnabled = range != null
         rangeToggle.text = if (range == null) "Estimated range · GPS evidence needed" else "Estimated range"
-        surveyInfo.update(if (record == null) "Start a survey to record fresh RF evidence. Cached nodes are excluded."
-            else "Active survey last conducted ${age(s.surveys.first().started)} · ${record.nodes.size} heard · ${record.tested.size} tested\n" +
-                (if (record.id == s.activeSurvey) s.surveyText else if (record.result.startsWith("Survey complete")) "Completed survey" else "Stopped / interrupted survey") +
-                if (rangeEnabled && range != null) "\nEstimated range: ${"%.2f km".format(java.util.Locale.US, range / 1000)} · Includes hops, not guaranteed coverage." else "")
-        displayed = if (!surveyMode) s else s.copy(nodes = record?.let { it.nodes + listOfNotNull(it.origin) }.orEmpty(),
+        val summary = if (record == null) "Start ${if (discoveryMode) "discovery" else "a survey"} to record fresh RF evidence. Cached-only nodes are excluded."
+            else "${record.nodes.size} heard · " + (if (discoveryMode) "${record.newNodes.size} new · ${record.requests} requests" else "${record.tested.size} tested") +
+                "\n" + (if (record.id == activeId) s.surveyText else record.result.substringBefore("."))
+        surveyInfo.update(summary +
+            if (rangeEnabled && range != null) "\nEstimated range: ${"%.2f km".format(java.util.Locale.US, range / 1000)} · Includes hops, not guaranteed coverage." else "")
+        displayed = if (!historyMode) s else s.copy(nodes = record?.let { it.nodes + listOfNotNull(it.origin) }.orEmpty(),
             context = record?.context.orEmpty(), events = s.events.filter { it.survey == record?.id },
             started = record?.started ?: s.started)
         val visibleNodes = displayed.nodes
         val now = System.currentTimeMillis()
-        val next = if (surveyMode) visibleNodes.filter { it.number != s.local && (it.latitude == null || it.longitude == null) }
+        val next = if (historyMode) visibleNodes.filter { it.number != s.local && (it.latitude == null || it.longitude == null) }
             else RadioEvidence.significantUnlocated(s.nodes, s.events, s.local, s.context, s.started, now)
-        if (next != significant) { significant = next; adapter.notifyDataSetChanged() }
-        status.update(if (surveyMode) "All nodes heard over LoRa during this survey without reported coordinates." else if (significant.isEmpty()) "No qualifying unlocated nodes yet. All known nodes remain in Mesh." else "Candidates from recent direct RF / test evidence; forwarding ability is unverified.")
+        significant = next
+        adapter.notifyDataSetChanged() // Ages and classification can change without changing the node list.
+        status.update(if (historyMode) "Nodes heard over LoRa during this ${if (discoveryMode) "discovery" else "survey"} without reported coordinates." else if (significant.isEmpty()) "No qualifying unlocated nodes yet. All known nodes remain in Mesh." else "Candidates from recent direct RF / test evidence; forwarding ability is unverified.")
         updatePanel()
         if (!ready) return
         val connectivity = context.getSystemService(ConnectivityManager::class.java)
         val online = connectivity.getNetworkCapabilities(connectivity.activeNetwork)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
         val data = JSONObject().put("local", s.local).put("online", online)
-            .put("view", "${s.local}/${if (surveyMode) selectedSurvey else "normal"}")
-            .put("range", if (surveyMode && rangeEnabled && range != null) JSONObject()
-                .put("lat", record?.origin?.latitude).put("lon", record?.origin?.longitude).put("meters", range) else null).put("nodes", JSONArray().apply {
+            .put("mode", if (discoveryMode) "discovery" else if (historyMode) "survey" else "normal")
+            .put("view", "${s.local}/${if (historyMode) selectedSurvey else "normal"}")
+            .put("range", if (historyMode && rangeEnabled && range != null) JSONObject()
+                .put("lat", record.origin?.latitude).put("lon", record.origin?.longitude).put("meters", range) else null).put("nodes", JSONArray().apply {
             visibleNodes.filter { it.latitude != null && it.longitude != null && RadioEvidence.validPosition(it.latitude!!, it.longitude!!) && it.latitude!! in -85.0..85.0 }.forEach { n ->
                 put(JSONObject().put("number", n.number).put("id", n.id).put("name", n.name).put("lat", n.latitude).put("lon", n.longitude)
                     .put("precision", n.positionPrecision).put("position", positionEvidence(n)).put("evidence", nodeEvidence(n))
                     .put("freshness", when {
-                        surveyMode && n.number != s.local -> "Last RF · ${age(n.observed)}"
+                        discoveryMode && n.number != s.local -> "${record?.discoveryLabel(n.number)} · RF ${age(n.observed)}"
+                        historyMode && n.number != s.local -> "Last RF · ${age(n.observed)}"
                         n.acknowledged > 0 && now - n.acknowledged in 0..600_000 -> "Ack · ${age(n.acknowledged)}"
                         n.observed > 0 -> "RF · ${age(n.observed)}"
                         else -> "Cached · ${age(n.lastKnown)}"
                     })
-                    .put("color", when { surveyMode -> "#5ddac4"; n.acknowledged > 0 && now - n.acknowledged in 0..600_000 -> "#5ddac4"; n.observed > 0 && now - n.observed in 0..600_000 -> "#74aaff"; else -> "#81919b" }))
+                    .put("color", when { n.number == s.local -> "#81919b"; discoveryMode && n.number !in record?.newNodes.orEmpty() -> "#74aaff"; historyMode -> "#5ddac4"; n.acknowledged > 0 && now - n.acknowledged in 0..600_000 -> "#5ddac4"; n.observed > 0 && now - n.observed in 0..600_000 -> "#74aaff"; else -> "#81919b" }))
             }
         })
         web.evaluateJavascript("relayUpdate($data)", null)
