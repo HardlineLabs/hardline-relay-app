@@ -395,7 +395,7 @@ class RadioMonitorService : Service() {
             updateSurveyRecord()
             it.stop(reason)
             val i = surveys.indexOfFirst { r -> r.id == it.id }
-            val result = "$reason. ${it.requests} discovery requests submitted; replies are not guaranteed."
+            val result = "$reason. ${it.requests} discovery request attempts; replies are not guaranteed."
             if (i >= 0) surveys[i] = surveys[i].copy(ended = System.currentTimeMillis(), result = result)
             state = state.copy(surveyText = result)
             record("Discovery stopped", result)

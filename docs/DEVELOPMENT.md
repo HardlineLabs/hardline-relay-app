@@ -216,6 +216,13 @@ Do not run --write-locks or --write-verification-metadata in routine builds.
 Initial verification hashes are trust-on-first-use from the configured HTTPS
 repositories, not an independent upstream signature audit.
 
+Kotlin 2.3.10 Android/JVM plugin-marker POMs accept both Maven Central and Gradle
+Plugin Portal checksums. On 2026-09-09 both published variants were compared:
+identical coordinates and sole `kotlin-gradle-plugin:2.3.10` dependency, with only
+descriptive metadata/formatting differences and no extra repositories, build or
+profile declarations. Artifact-level `also-trust` entries cover those two POMs;
+binary checksums and all version pins remain unchanged.
+
 ## IDE
 
 `./tools/open-studio.ps1` configures this repository and opens Android Studio.
