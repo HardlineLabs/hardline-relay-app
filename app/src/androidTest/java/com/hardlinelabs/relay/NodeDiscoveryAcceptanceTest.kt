@@ -68,8 +68,8 @@ class NodeDiscoveryAcceptanceTest {
             waitUntil(5_000) { !monitor.state.surveying }
             val after = MeshChannelClient(api).read()
             assertEquals(before.node, after.node)
-            assertEquals(before.config, after.config)
-            assertEquals(before.channels, after.channels)
+            assertTrue("Radio configuration preserved", before.config == after.config)
+            assertTrue("Channel settings preserved", before.channels == after.channels)
         } finally {
             monitor.stopSurvey()
             instrumentation.runOnMainSync { activity.finish() }
