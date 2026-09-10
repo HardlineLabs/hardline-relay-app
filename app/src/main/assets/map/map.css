@@ -2,3 +2,4 @@ html,body,#map{height:100%;width:100%;margin:0;background:#15252c;font-family:sy
 .node-marker.focused .dot{box-shadow:0 0 0 5px #ffd277,0 0 0 8px #14222e}.node-marker.focused .name{background:#14222e;border:1px solid #ffd277}
 .name{max-width:170px;overflow:hidden;text-overflow:ellipsis}.freshness{display:block;font-size:9px;color:#d9e9f0}#map.overview .node-marker:not(.focused) .name{display:none}
 .name{flex-shrink:0}
+#legend{white-space:pre-line}

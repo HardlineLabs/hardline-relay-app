@@ -45,7 +45,7 @@ class ObservatoryUi(private val activity: Activity, private val atak: View,
         ui.label(header, "HARDLINE  /  RELAY", 10f, ui.mint).letterSpacing = .16f
         heading = ui.label(header, "Radio", 25f).apply { typeface = Typeface.DEFAULT_BOLD }
         connection = ui.label(header, size = 12f, color = ui.muted).also(ui::single)
-        testBanner = ui.button(header, "") { testNode?.let(::inspect) }.apply {
+        testBanner = ui.button(header, "") { if (state().activeDiscovery.isNotEmpty()) { showPage(2); map?.showDiscovery() } else testNode?.let(::inspect) }.apply {
             tag = "test-progress"; visibility = GONE; textSize = 13f; isAllCaps = false
             maxLines = 2; minLines = 2; setTextColor(ui.mint)
         }
@@ -72,7 +72,7 @@ class ObservatoryUi(private val activity: Activity, private val atak: View,
     fun showAtak() = showPage(4)
     fun back(): Boolean { if (inspector == null) return false; closeInspector(); return true }
     private fun state(): MonitorState = stateSource?.invoke() ?: RadioMonitorService.instance?.state?.also { lastState = it }
-        ?: lastState.copy(surveying = false)
+        ?: lastState.copy(surveying = false, activeSurvey = "", activeDiscovery = "")
     private fun capturing() = stateSource != null || RadioMonitorService.instance != null
     private fun showPage(index: Int) {
         closeInspector(); pages[page]?.visibility = GONE
@@ -110,8 +110,9 @@ class ObservatoryUi(private val activity: Activity, private val atak: View,
         val completed = s.surveyCompletedAt > 0 && android.os.SystemClock.elapsedRealtime() - s.surveyCompletedAt in 0..30_000
         val target = s.attempts.lastOrNull()?.node ?: s.surveyTargets.firstOrNull()
         testNode = s.nodes.firstOrNull { it.number == target }
-        testBanner.visibility = if ((s.surveying || completed) && testNode != null) VISIBLE else GONE
+        testBanner.visibility = if (s.activeDiscovery.isNotEmpty() || ((s.surveying || completed) && testNode != null)) VISIBLE else GONE
         testBanner.update(when {
+            s.activeDiscovery.isNotEmpty() -> "Node discovery running · View map / Stop"
             !s.surveying -> "${if (s.surveyStopReason != null) "Test ended" else "Test complete"} · ${testNode?.name}\nView results"
             s.surveyTargets.size > 1 -> "Mesh survey · ${testNode?.name}\nCheck ${s.attempts.size.coerceAtLeast(1)}/${s.surveyBudget} · View test"
             else -> "Test in progress · ${testNode?.name}\nView test"
@@ -151,7 +152,7 @@ class ObservatoryUi(private val activity: Activity, private val atak: View,
             val s = state()
             if (!capturing()) startCapture() else if (s.surveying) RadioMonitorService.instance?.stopSurvey() else RadioMonitorService.instance?.startSurvey()
         }.apply { tag = "radio-check" }
-        radioBindings.add { s -> action.update(if (!capturing()) "Start capture" else if (s.surveying) "Stop survey" else "Check my connection"); action.isEnabled = !capturing() || s.connected }
+        radioBindings.add { s -> action.update(if (!capturing()) "Start capture" else if (s.activeDiscovery.isNotEmpty()) "Stop discovery" else if (s.surveying) "Stop survey" else "Check my connection"); action.isEnabled = !capturing() || s.connected }
         live(hero, 13f, ui.muted) { it.surveyText }
         ui.label(hero, "Checks up to 4 eligible known nodes ranked by recent evidence, twice each (8 checks maximum). Alternates an addressed acknowledgment probe with a device-telemetry request. Waits between checks; no public chat. Inspect one node for a focused 4-check test.", 12f, ui.muted)
         ui.button(hero, "Why this assessment?") {
