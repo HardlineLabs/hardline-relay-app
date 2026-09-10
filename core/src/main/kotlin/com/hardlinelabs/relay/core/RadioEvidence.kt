@@ -47,6 +47,8 @@ data class RadioNode(
 )
 
 object RadioEvidence {
+    fun isLoRa(local: Boolean, mqtt: Boolean, transport: Int, rssi: Int) =
+        !local && !mqtt && transport != 5 && (transport in 1..4 || rssi in -160..-1)
     /** Status-only notifications update an existing submission; they never invent a packet. */
     fun packets(events: List<RadioEvent>): List<RadioEvent> {
         val statuses = events.filter { it.direction == "STATUS" }.groupBy { it.packetId }

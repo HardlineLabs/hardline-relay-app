@@ -9,7 +9,9 @@ import org.json.JSONObject
 data class SurveyRecord(val id: String, val started: Long, val ended: Long = 0,
                         val result: String = "Survey running", val context: String,
                         val origin: RadioNode? = null, val nodes: List<RadioNode> = emptyList(),
-                        val tested: List<Int> = emptyList()) {
+                        val tested: List<Int> = emptyList(), val discovery: Boolean = false,
+                        val newNodes: List<Int> = emptyList(), val requests: Int = 0) {
+    fun discoveryLabel(number: Int) = if (number in newNodes) "New this discovery" else "Known · heard this discovery"
     fun rangeMeters(): Double? {
         val own = origin ?: return null
         val lat = own.latitude ?: return null
@@ -20,10 +22,13 @@ data class SurveyRecord(val id: String, val started: Long, val ended: Long = 0,
     fun json() = JSONObject().put("id", id).put("started", started).put("ended", ended)
         .put("result", result).put("context", context).put("origin", origin?.let(::encodeNode))
         .put("nodes", JSONArray(nodes.map(::encodeNode))).put("tested", JSONArray(tested))
+        .put("discovery", discovery).put("newNodes", JSONArray(newNodes)).put("requests", requests)
     companion object {
         fun read(j: JSONObject) = SurveyRecord(j.getString("id"), j.getLong("started"), j.optLong("ended"),
             j.optString("result"), j.optString("context"), j.optJSONObject("origin")?.let(::decodeNode),
-            readNodes(j.optJSONArray("nodes")), j.optJSONArray("tested")?.let { a -> (0 until a.length()).map { a.getInt(it) } }.orEmpty())
+            readNodes(j.optJSONArray("nodes")), readIds(j.optJSONArray("tested")), j.optBoolean("discovery"),
+            readIds(j.optJSONArray("newNodes")), j.optInt("requests"))
+        private fun readIds(a: JSONArray?) = a?.let { (0 until minOf(a.length(), 1000)).map { a.getInt(it) } }.orEmpty()
     }
 }
 

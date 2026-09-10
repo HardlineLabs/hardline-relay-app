@@ -10,6 +10,8 @@ checks. Mesh offers live node testing, and Map places reported nodes on interact
 satellite/aerial imagery. Activity presents expandable TX/RX packet cards with
 status, size, and hops.
 Active survey maps and dated per-radio history compare observed mesh reach across antenna placements.
+Node discovery listens continuously with spaced native announcements, distinguishing
+new nodes from known nodes heard during the discovery session.
 Capture never starts a survey automatically, and diagnostics never send public chat.
 
 HARDLINE ATAK contains the existing contingency-channel workflow:

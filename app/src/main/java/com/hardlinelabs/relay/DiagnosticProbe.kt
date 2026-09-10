@@ -28,3 +28,6 @@ object DiagnosticProbe {
         service.requestTelemetry(id, destination, 0) // DEVICE metrics, native directed request.
     }
 }
+
+/** Pinned API sends our User on primary channel with NODEINFO_APP / want_response. */
+internal fun requestNodeDiscovery(service: IMeshService) = service.requestUserInfo(-1)

@@ -39,10 +39,12 @@ class ObservationStorageTest {
             val now = System.currentTimeMillis()
             val own = com.hardlinelabs.relay.core.RadioNode(1, "!00000001", "Origin", 0, now, 40.0, -105.0)
             val heard = own.copy(number = 2, id = "!00000002", latitude = 40.1, observed = now, hops = 3)
-            val record = SurveyRecord("one", now, now + 1000, "Complete", "US", own, listOf(heard), listOf(2))
+            val record = SurveyRecord("one", now, now + 1000, "Complete", "US", own, listOf(heard), listOf(2),
+                discovery = true, newNodes = listOf(2), requests = 2)
             ObservationStore(context, name).use {
                 it.radio = 1
-                it.saveSnapshot(org.json.JSONObject().put("surveys", org.json.JSONArray(listOf(record.json()))))
+                it.saveSnapshot(org.json.JSONObject().put("surveys", org.json.JSONArray(listOf(record.json())))
+                    .put("discoveryDueWall", now + 600_000))
                 it.append(RadioEvent(now, "RX", "Telemetry", source = heard.id))
                 it.radio = 3
                 assertTrue(it.read().isEmpty()); assertNull(it.snapshot())
@@ -54,6 +56,7 @@ class ObservationStorageTest {
                 assertEquals("!00000002", it.read().single().source)
                 val restored = SurveyRecord.read(it.snapshot()!!.getJSONArray("surveys").getJSONObject(0))
                 assertEquals(record, restored)
+                assertEquals(now + 600_000, it.snapshot()!!.getLong("discoveryDueWall"))
                 assertTrue(restored.rangeMeters()!! > 11000)
                 it.clear()
                 it.radio = 3

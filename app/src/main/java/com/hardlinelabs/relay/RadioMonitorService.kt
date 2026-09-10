@@ -29,6 +29,7 @@ data class MonitorState(
     val longName: String = "",
     val surveys: List<SurveyRecord> = emptyList(),
     val activeSurvey: String = "",
+    val activeDiscovery: String = "",
     val congestion: List<CongestionSample> = emptyList(),
     val utilization: Float? = null,
     val airtime: Float? = null,
@@ -66,6 +67,9 @@ class RadioMonitorService : Service() {
     private var fingerprint = ""
     private var contextSince = System.currentTimeMillis()
     private var survey: RadioSurvey? = null
+    private var discovery: NodeDiscovery? = null
+    private var nextDiscoveryAt = 0L
+    private var discoveryDueWall = 0L
     private var announcedResult = ""
     private var lastPoll = 0L
     private var lastSurveyEnd = -30_000L
@@ -103,6 +107,7 @@ class RadioMonitorService : Service() {
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastPoll >= 5_000) { lastPoll = now; poll() }
                 advanceSurvey(now)
+                advanceDiscovery(now)
                 publish()
             }.onFailure {
                 state = state.copy(message = "Observation interrupted. Reconnect or restart capture.")
@@ -174,9 +179,12 @@ class RadioMonitorService : Service() {
             history.radio = current.node
             ProfileStore(this).selectRadio(current.node)
             nodes.clear(); events.clear(); seen.clear(); statusSeen.clear(); surveys.clear()
-            survey = null; fingerprint = ""; phoneFix = null; nextProbeAt = 0; announcedResult = ""
+            survey = null; discovery = null; fingerprint = ""; phoneFix = null; nextProbeAt = 0; announcedResult = ""
+            nextDiscoveryAt = 0; discoveryDueWall = 0
             state = MonitorState(started = System.currentTimeMillis())
             history.snapshot()?.let { stored ->
+                discoveryDueWall = stored.optLong("discoveryDueWall")
+                nextDiscoveryAt = SystemClock.elapsedRealtime() + (discoveryDueWall - System.currentTimeMillis()).coerceIn(0, NodeDiscovery.INTERVAL_MS)
                 readNodes(stored.optJSONArray("nodes")).forEach { nodes[it.number] = it }
                 val past = stored.optJSONArray("surveys") ?: JSONArray()
                 (0 until minOf(past.length(), 20)).forEach { i ->
@@ -288,7 +296,7 @@ class RadioMonitorService : Service() {
         val number = source.drop(1).toLong(16).toInt()
         val local = number == state.local
         val mqtt = p.viaMqtt || p.transportMechanism == 5
-        val rf = !local && !mqtt && (p.transportMechanism in 1..4 || p.rssi in -160..-1)
+        val rf = RadioEvidence.isLoRa(local, mqtt, p.transportMechanism, p.rssi)
         val hops = if (rf) RadioEvidence.hops(p.hopStart, p.hopLimit) else null
         val node = nodes[number] ?: RadioNode(number, source, source, p.channel, 0)
         val own = nodes[state.local]
@@ -300,14 +308,16 @@ class RadioMonitorService : Service() {
         val snr = p.snr.takeIf { rf && it.isFinite() && it in -40f..40f }
         if (rf) {
             nodes[number] = node.copy(observed = now, rssi = rssi, snr = snr, hops = hops)
-            survey?.takeIf { it.wholeMesh && !it.finished }?.let { active ->
-                active.discover(listOf(number).filter { p.channel in 0..7 })
-                val i = surveys.indexOfFirst { it.id == active.id }
-                if (i >= 0) {
-                    val record = surveys[i]
-                    val heard = record.nodes.associateBy { it.number }.toMutableMap()
-                    if (number in heard || heard.size < 1000) heard[number] = nodes.getValue(number)
-                    surveys[i] = record.copy(nodes = heard.values.toList())
+            survey?.takeIf { it.wholeMesh && !it.finished }?.discover(listOf(number).filter { p.channel in 0..7 })
+            val i = surveys.indexOfFirst { it.id == activeObservationId() }
+            if (i >= 0) {
+                val record = surveys[i]
+                val heard = record.nodes.associateBy { it.number }.toMutableMap()
+                if (number in heard || heard.size < 1000) {
+                    heard[number] = nodes.getValue(number)
+                    val isNew = discovery?.takeUnless { it.finished }?.isNew(number) == true
+                    surveys[i] = record.copy(nodes = heard.values.toList(),
+                        newNodes = if (isNew && number !in record.newNodes) record.newNodes + number else record.newNodes)
                 }
             }
         }
@@ -319,7 +329,7 @@ class RadioMonitorService : Service() {
         append(RadioEvent(now, if (local) "LOCAL" else "RX", kind(p.dataType), source,
             p.to?.take(32) ?: "Unknown", p.id, p.channel, p.bytes?.size ?: 0, rssi, snr, hops,
             p.hopLimit.takeIf { it in 0..7 }, p.relayNode?.takeIf { it in 1..255 }, mqtt, distance, positionTime,
-            state.context, survey?.takeUnless { it.finished }?.id ?: "", "Observed", note,
+            state.context, activeObservationId(), "Observed", note,
             transport = if (mqtt) "MQTT" else if (rf) "LoRa" else "Local / unknown"))
     }
 
@@ -354,13 +364,14 @@ class RadioMonitorService : Service() {
 
     fun startSurvey(target: Int? = null, wholeMesh: Boolean = false) = execute {
         val now = SystemClock.elapsedRealtime()
-        if (survey?.finished == false) return@execute
+        if (survey?.finished == false || discovery?.finished == false) return@execute
         poll()
         if (!state.connected || radio == null) { state = state.copy(surveyText = "Connect the radio first."); return@execute }
         if (ProfileStore(this).switching()) { state = state.copy(surveyText = "Activation remains unconfirmed. Verify a profile before transmitting diagnostics."); return@execute }
         val candidates = RadioEvidence.ranked(nodes.values.filter { it.number != state.local && it.number != 0 && it.number != -1 && it.channel in 0..7 }, System.currentTimeMillis())
         val selected = if (wholeMesh) candidates.take(1000) else if (target == null) candidates.take(4) else candidates.filter { it.number == target }.take(1)
         if (selected.isEmpty()) { state = state.copy(surveyText = "No addressable nodes in the radio cache yet. Listen on the intended mesh first."); return@execute }
+        discovery = null
         survey = RadioSurvey(UUID.randomUUID().toString().take(8), selected.map { it.number }, now,
             if (target == null) 2 else 4, wholeMesh, maxOf(now, nextProbeAt))
         state = state.copy(surveyText = if (now < nextProbeAt) "Test queued · waiting for radio spacing" else "Starting addressed checks…")
@@ -380,8 +391,67 @@ class RadioMonitorService : Service() {
         execute { stopSurveyInternal(reason) }
     }
     private fun stopSurveyInternal(reason: String) {
+        discovery?.takeUnless { it.finished }?.let {
+            updateSurveyRecord()
+            it.stop(reason)
+            val i = surveys.indexOfFirst { r -> r.id == it.id }
+            val result = "$reason. ${it.requests} discovery request attempts; replies are not guaranteed."
+            if (i >= 0) surveys[i] = surveys[i].copy(ended = System.currentTimeMillis(), result = result)
+            state = state.copy(surveyText = result)
+            record("Discovery stopped", result)
+            saveRadio()
+        }
         survey?.takeUnless { it.finished }?.stop(reason)
         finishSurvey()
+    }
+
+    fun startDiscovery() = execute {
+        if (survey?.finished == false || discovery?.finished == false) return@execute
+        poll()
+        if (!state.connected || radio == null) { state = state.copy(surveyText = "Connect the radio first."); return@execute }
+        if (ProfileStore(this).switching()) { state = state.copy(surveyText = "Verify the pending profile activation before discovery."); return@execute }
+        val now = SystemClock.elapsedRealtime()
+        // Snapshot IDs before requests or NODE_CHANGE can populate the cache. Include the full upstream cache.
+        val known = nodes.keys + mesh!!.nodes.orEmpty().map { it.num }
+        survey = null
+        discovery = NodeDiscovery(UUID.randomUUID().toString().take(8), known.toSet(), maxOf(now, nextProbeAt, nextDiscoveryAt))
+        surveys.add(0, SurveyRecord(discovery!!.id, System.currentTimeMillis(), context = state.context,
+            origin = nodes[state.local]?.takeIf { it.latitude != null && it.longitude != null }, discovery = true))
+        while (surveys.size > 20) surveys.removeAt(surveys.lastIndex)
+        probesPaused = false
+        state = state.copy(surveyText = "Discovery starting · listening for fresh RF")
+        record("Discovery started", "Native NodeInfo on the primary channel, at most once per ten minutes. New means absent from the starting cache, not a proven response to our request.")
+        saveRadio()
+    }
+
+    private fun advanceDiscovery(now: Long) {
+        val d = discovery?.takeUnless { it.finished } ?: return
+        if (stopping || probesPaused) { stopSurveyInternal("Discovery paused"); return }
+        if (!state.connected || ProfileStore(this).switching()) { stopSurveyInternal("Radio unavailable or activation in progress"); return }
+        fun busy() = state.metricTime >= contextSince && System.currentTimeMillis() - state.metricTime in 0..120_000 &&
+            (state.utilization ?: 0f) >= 40f
+        if (d.ready(now, busy())) {
+            poll()
+            if (d.finished || !state.connected || stopping || probesPaused || busy() || ProfileStore(this).switching()) return
+            val api = mesh ?: return
+            val submittedAt = SystemClock.elapsedRealtime()
+            nextDiscoveryAt = submittedAt + NodeDiscovery.INTERVAL_MS
+            discoveryDueWall = System.currentTimeMillis() + NodeDiscovery.INTERVAL_MS
+            nextProbeAt = submittedAt + 30_000
+            // Persist the cooldown before submitting, including across capture/process restarts.
+            saveRadio()
+            if (stopping || probesPaused) { stopSurveyInternal("Discovery paused"); return }
+            d.submitted(SystemClock.elapsedRealtime())
+            nextDiscoveryAt = d.nextRequestAt
+            val result = runCatching { requestNodeDiscovery(api) }
+            append(RadioEvent(System.currentTimeMillis(), "TX", "Node discovery request", nodeId(state.local), "Broadcast",
+                channel = 0, size = -1, context = state.context, survey = d.id,
+                outcome = if (result.isSuccess) "Submitted to Meshtastic" else "Submission failed",
+                note = "Native NodeInfo with replies requested. API does not expose its packet ID or RF transmission confirmation. Firmware may suppress replies. No position is sent."))
+            if (result.isFailure) { stopSurveyInternal("Discovery submission failed; reconnect before retrying"); return }
+        }
+        state = state.copy(surveyText = if (busy()) "Discovery listening · channel busy, requests paused" else
+            "Discovery listening · ${d.requests} requests submitted · next request in ${((d.nextRequestAt - now).coerceAtLeast(0) + 999) / 1000}s")
     }
 
     private fun advanceSurvey(now: Long) {
@@ -426,8 +496,10 @@ class RadioMonitorService : Service() {
     }
 
     private fun updateSurveyRecord() {
-        val active = survey?.takeIf { it.wholeMesh } ?: return
-        val i = surveys.indexOfFirst { it.id == active.id }
+        val active = survey?.takeIf { it.wholeMesh }
+        val d = discovery
+        val id = d?.id ?: active?.id ?: return
+        val i = surveys.indexOfFirst { it.id == id }
         if (i < 0 || surveys[i].ended != 0L) return
         val record = surveys[i]
         surveys[i] = record.copy(nodes = record.nodes.map { heard ->
@@ -435,7 +507,7 @@ class RadioMonitorService : Service() {
             val current = nodes[heard.number]
             if (current == null) heard else current.copy(observed = heard.observed, acknowledged = heard.acknowledged,
                 rssi = heard.rssi, snr = heard.snr, hops = heard.hops)
-        }, tested = active.attempts.map { it.node }.distinct())
+        }, tested = active?.attempts?.map { it.node }?.distinct().orEmpty(), requests = d?.requests ?: record.requests)
     }
     private fun finishSurvey() {
         val s = survey ?: return
@@ -477,7 +549,8 @@ class RadioMonitorService : Service() {
     private fun saveRadio() {
         if (history.radio == 0) return
         history.saveSnapshot(JSONObject().put("nodes", JSONArray(nodes.values.take(1000).map(::encodeNode)))
-            .put("surveys", JSONArray(surveys.take(20).map { it.json() })).put("details", radioDetailsJson(state)))
+            .put("surveys", JSONArray(surveys.take(20).map { it.json() })).put("details", radioDetailsJson(state))
+            .put("discoveryDueWall", discoveryDueWall))
         lastSaved = SystemClock.elapsedRealtime()
     }
     private fun append(e: RadioEvent) {
@@ -488,13 +561,15 @@ class RadioMonitorService : Service() {
         history.append(e)
     }
     private fun record(kind: String, note: String) = append(RadioEvent(System.currentTimeMillis(), "EVENT", kind,
-        context = state.context, survey = survey?.id ?: "", note = note))
+        context = state.context, survey = discovery?.id ?: survey?.id ?: "", note = note))
+    private fun activeObservationId() = discovery?.takeUnless { it.finished }?.id ?: survey?.takeUnless { it.finished }?.id.orEmpty()
     private fun publish() {
         updateSurveyRecord()
         if (SystemClock.elapsedRealtime() - lastSaved >= 15_000) saveRadio()
         state = state.copy(nodes = nodes.values.toList(), events = events.toList(), surveys = surveys.toList(),
             activeSurvey = survey?.takeIf { it.wholeMesh && !it.finished }?.id.orEmpty(), surveyId = survey?.id ?: "",
-            surveying = survey?.finished == false, attempts = survey?.attempts?.map { it.copy() } ?: emptyList(),
+            activeDiscovery = discovery?.takeUnless { it.finished }?.id.orEmpty(),
+            surveying = survey?.finished == false || discovery?.finished == false, attempts = survey?.attempts?.map { it.copy() } ?: emptyList(),
             surveyTargets = survey?.targets?.toList() ?: emptyList(), surveyStopReason = survey?.stopped,
             surveyBudget = survey?.budget ?: 0, surveyCompletedAt = if (survey?.finished == true) lastSurveyEnd else 0)
     }

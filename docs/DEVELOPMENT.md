@@ -151,6 +151,46 @@ For node tests, navigate through main pages while a check runs, tap the progress
 banner to return to its inspector, and verify a second test cannot start. Ordinary
 instrumentation uses synthetic state and never starts RF surveys.
 
+## Node discovery acceptance (0.10)
+
+JVM tests cover continuous scheduling, ten-minute spacing, busy-channel pauses,
+Stop, starting-cache classification, RF/MQTT filtering and the native broadcast API
+call. Ordinary Android tests use synthetic coordinates to check separate histories,
+new/known colors and labels, empty-session cache exclusion, mode exclusion and
+discovery history/cooldown storage across reopening. They never start discovery RF.
+
+On the explicitly selected attached lab phone, install app and instrumentation APKs:
+
+```powershell
+./tools/devices.ps1 install --serial SERIAL --count 1
+./tools/devices.ps1 test --serial SERIAL --count 1
+adb -s SERIAL shell am instrument -w -e class com.hardlinelabs.relay.NodeDiscoveryAcceptanceTest -e nodeDiscovery true com.hardlinelabs.relay.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+The opt-in test submits one native request, listens for three minutes, verifies
+fresh-only records and no overlap with addressed surveys, then tests Stop/restart
+cooldown and compares radio/configuration/channel snapshots without printing them.
+An existing cooldown can add up to ten minutes. A persistently busy channel or
+disconnection can prevent acceptance; never override its guard to obtain a result.
+Aggregate reception counts are evidence only of that placement and observation
+window. Reopen Relay and explicitly restart passive capture after instrumentation,
+which can terminate the target process. No automatic survey should restart.
+
+For manual UI acceptance, open Map and select Node discovery. Verify Start/Stop,
+the running header's return-to-map action, separate dated history, teal new versus
+blue known RF origins, and readable labels/unlocated fallback. Background/reopen
+while running, then stop capture and require an interrupted record with no auto-resume.
+An empty result is valid when nothing is heard; do not inject synthetic nodes into
+the production database to make hardware acceptance appear successful.
+
+An indoor check on 2026-09-09 submitted one request and heard eight RF origins in
+three minutes: three absent from the starting cache, four with reported coordinates.
+Stop, immediate-restart cooldown, survey exclusion and unchanged radio settings
+passed. These are session observations, not proof of discovery causation or outdoor
+range. Build/lint, 49 JVM tests, seven device-script tests and the ordinary Android
+suite passed on the single attached phone. Synthetic map checks include marker
+visibility after the native discovery controls resize the WebView.
+
 ## Build outputs
 
 - app/build/outputs/apk/debug/app-debug.apk
@@ -175,6 +215,13 @@ snapshots compared, both repositories' checks, and two-phone integration.
 Do not run --write-locks or --write-verification-metadata in routine builds.
 Initial verification hashes are trust-on-first-use from the configured HTTPS
 repositories, not an independent upstream signature audit.
+
+Kotlin 2.3.10 Android/JVM plugin-marker POMs accept both Maven Central and Gradle
+Plugin Portal checksums. On 2026-09-09 both published variants were compared:
+identical coordinates and sole `kotlin-gradle-plugin:2.3.10` dependency, with only
+descriptive metadata/formatting differences and no extra repositories, build or
+profile declarations. Artifact-level `also-trust` entries cover those two POMs;
+binary checksums and all version pins remain unchanged.
 
 ## IDE
 
