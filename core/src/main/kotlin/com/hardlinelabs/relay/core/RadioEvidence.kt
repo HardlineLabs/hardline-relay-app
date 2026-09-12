@@ -49,27 +49,61 @@ data class RadioNode(
 object RadioEvidence {
     fun isLoRa(local: Boolean, mqtt: Boolean, transport: Int, rssi: Int) =
         !local && !mqtt && transport != 5 && (transport in 1..4 || rssi in -160..-1)
+
     /** Status-only notifications update an existing submission; they never invent a packet. */
     fun packets(events: List<RadioEvent>): List<RadioEvent> {
         val statuses = events.filter { it.direction == "STATUS" }.groupBy { it.packetId }
-        return events.filter { it.direction == "TX" || it.direction == "RX" }.map { e ->
-            if (e.direction != "TX" || e.packetId == 0) e else {
-                val status = statuses[e.packetId]?.lastOrNull {
-                    it.time - e.time in 0..180_000 && it.context == e.context && it.survey == e.survey &&
-                        (it.destination.isEmpty() || it.destination == e.destination)
+        return events
+            .filter { it.direction == "TX" || it.direction == "RX" }
+            .map { e ->
+                if (e.direction != "TX" || e.packetId == 0) e
+                else {
+                    val status =
+                        statuses[e.packetId]?.lastOrNull {
+                            it.time - e.time in 0..180_000 &&
+                                it.context == e.context &&
+                                it.survey == e.survey &&
+                                (it.destination.isEmpty() || it.destination == e.destination)
+                        }
+                    if (status == null) e
+                    else e.copy(outcome = status.outcome, elapsed = status.elapsed)
                 }
-                if (status == null) e else e.copy(outcome = status.outcome, elapsed = status.elapsed)
             }
-        }
     }
 
-    fun significantUnlocated(nodes: List<RadioNode>, events: List<RadioEvent>, local: Int,
-                             context: String, started: Long, now: Long): List<RadioNode> {
-        val direct = events.filter { it.direction == "RX" && it.transport == "LoRa" && it.hops == 0 &&
-            it.context == context && it.time >= started && now - it.time in 0..600_000 &&
-            it.snr != null && it.snr >= -7.5f && it.rssi != null && it.rssi >= -115 }.groupingBy { it.source }.eachCount()
-        return ranked(nodes.filter { it.number != local && (it.latitude == null || it.longitude == null) &&
-            ((direct[it.id] ?: 0) >= 2 || (it.acknowledged > 0 && now - it.acknowledged in 0..600_000)) }, now)
+    fun significantUnlocated(
+        nodes: List<RadioNode>,
+        events: List<RadioEvent>,
+        local: Int,
+        context: String,
+        started: Long,
+        now: Long,
+    ): List<RadioNode> {
+        val direct =
+            events
+                .filter {
+                    it.direction == "RX" &&
+                        it.transport == "LoRa" &&
+                        it.hops == 0 &&
+                        it.context == context &&
+                        it.time >= started &&
+                        now - it.time in 0..600_000 &&
+                        it.snr != null &&
+                        it.snr >= -7.5f &&
+                        it.rssi != null &&
+                        it.rssi >= -115
+                }
+                .groupingBy { it.source }
+                .eachCount()
+        return ranked(
+            nodes.filter {
+                it.number != local &&
+                    (it.latitude == null || it.longitude == null) &&
+                    ((direct[it.id] ?: 0) >= 2 ||
+                        (it.acknowledged > 0 && now - it.acknowledged in 0..600_000))
+            },
+            now,
+        )
     }
 
     fun hops(start: Int, remaining: Int): Int? =
@@ -84,36 +118,70 @@ object RadioEvidence {
         return 6_371_000 * 2 * asin(sqrt(h.coerceIn(0.0, 1.0)))
     }
 
-    fun validPosition(lat: Double, lon: Double) = lat.isFinite() && lon.isFinite() &&
-        lat in -90.0..90.0 && lon in -180.0..180.0 && !(lat == 0.0 && lon == 0.0)
+    fun validPosition(lat: Double, lon: Double) =
+        lat.isFinite() &&
+            lon.isFinite() &&
+            lat in -90.0..90.0 &&
+            lon in -180.0..180.0 &&
+            !(lat == 0.0 && lon == 0.0)
 
     fun counterDelta(previous: Long?, current: Long): Long? =
         previous?.takeIf { current >= it }?.let { current - it }
 
-    fun ranked(nodes: List<RadioNode>, now: Long) = nodes.sortedWith(
-        compareByDescending<RadioNode> { it.acknowledged > 0 && now - it.acknowledged in 0..600_000 }
-            .thenByDescending { it.observed > 0 && now - it.observed in 0..600_000 }
-            .thenByDescending { it.observed }.thenByDescending { it.lastKnown }
-    )
+    fun ranked(nodes: List<RadioNode>, now: Long) =
+        nodes.sortedWith(
+            compareByDescending<RadioNode> {
+                    it.acknowledged > 0 && now - it.acknowledged in 0..600_000
+                }
+                .thenByDescending { it.observed > 0 && now - it.observed in 0..600_000 }
+                .thenByDescending { it.observed }
+                .thenByDescending { it.lastKnown }
+        )
 }
 
-/** One addressed request at a time. Deadlines use monotonic time, independent of phone clock edits. */
-class RadioSurvey(val id: String, targets: List<Int>, val started: Long, val attemptsPerNode: Int,
-                  val wholeMesh: Boolean = false, firstSendAt: Long = started) {
-    data class Attempt(val node: Int, val packetId: Int, val sent: Long,
-                       var outcome: String = "Awaiting acknowledgment", var elapsed: Long? = null)
+/**
+ * One addressed request at a time. Deadlines use monotonic time, independent of phone clock edits.
+ */
+class RadioSurvey(
+    val id: String,
+    targets: List<Int>,
+    val started: Long,
+    val attemptsPerNode: Int,
+    val wholeMesh: Boolean = false,
+    firstSendAt: Long = started,
+) {
+    data class Attempt(
+        val node: Int,
+        val packetId: Int,
+        val sent: Long,
+        var outcome: String = "Awaiting acknowledgment",
+        var elapsed: Long? = null,
+    )
+
     val targets = targets.toMutableList()
     val attempts = mutableListOf<Attempt>()
+
     fun discover(numbers: List<Int>) {
         if (!wholeMesh || finished) return
-        numbers.filter { it != 0 && it != -1 && it !in targets }.distinct().take(1000 - targets.size).forEach(targets::add)
+        numbers
+            .filter { it != 0 && it != -1 && it !in targets }
+            .distinct()
+            .take(1000 - targets.size)
+            .forEach(targets::add)
     }
+
     var stopped: String? = null
         private set
+
     private var nextAt = firstSendAt
-    val budget get() = (targets.size * attemptsPerNode).coerceAtMost(if (wholeMesh) 2000 else 12)
-    val pending get() = attempts.lastOrNull()?.takeIf { it.outcome == "Awaiting acknowledgment" }
-    val finished get() = stopped != null || (attempts.size >= budget && pending == null)
+    val budget
+        get() = (targets.size * attemptsPerNode).coerceAtMost(if (wholeMesh) 2000 else 12)
+
+    val pending
+        get() = attempts.lastOrNull()?.takeIf { it.outcome == "Awaiting acknowledgment" }
+
+    val finished
+        get() = stopped != null || (attempts.size >= budget && pending == null)
 
     init {
         require(targets.isNotEmpty() && targets.distinct().size == targets.size)
@@ -123,7 +191,10 @@ class RadioSurvey(val id: String, targets: List<Int>, val started: Long, val att
 
     fun next(now: Long, busyChannel: Boolean): Int? {
         if (finished) return null
-        if (!wholeMesh && now - started >= 360_000) { stop("Survey time limit reached"); return null }
+        if (!wholeMesh && now - started >= 360_000) {
+            stop("Survey time limit reached")
+            return null
+        }
         pending?.let {
             if (now - it.sent >= 25_000) {
                 it.outcome = "Unconfirmed"
@@ -132,12 +203,18 @@ class RadioSurvey(val id: String, targets: List<Int>, val started: Long, val att
             return null
         }
         if (busyChannel || now < nextAt || attempts.size >= budget) return null
-        return targets[if (wholeMesh) attempts.size / attemptsPerNode else attempts.size % targets.size]
+        return targets[
+            if (wholeMesh) attempts.size / attemptsPerNode else attempts.size % targets.size]
     }
 
     fun sent(node: Int, packetId: Int, now: Long) {
         check(!finished && pending == null && attempts.size < budget)
-        require(node == targets[if (wholeMesh) attempts.size / attemptsPerNode else attempts.size % targets.size] && packetId != 0)
+        require(
+            node ==
+                targets[
+                    if (wholeMesh) attempts.size / attemptsPerNode
+                    else attempts.size % targets.size] && packetId != 0
+        )
         attempts.add(Attempt(node, packetId, now))
         nextAt = now + 15_000
     }
@@ -162,7 +239,9 @@ class RadioSurvey(val id: String, targets: List<Int>, val started: Long, val att
         val confirmed = attempts.count { it.outcome == "Acknowledged" }
         val relayed = attempts.count { it.outcome == "Relay acknowledgment" }
         return "$confirmed destination acknowledgments, $relayed routing acknowledgments from ${attempts.size} checks. " +
-            if (confirmed == 0) "Destination confirmation was not exposed. Silence does not prove a node is offline."
-            else "Meshtastic acknowledgment evidence; not a complete route or a guarantee of future delivery."
+            if (confirmed == 0)
+                "Destination confirmation was not exposed. Silence does not prove a node is offline."
+            else
+                "Meshtastic acknowledgment evidence; not a complete route or a guarantee of future delivery."
     }
 }
