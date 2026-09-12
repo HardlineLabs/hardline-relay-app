@@ -6,21 +6,30 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-enum class MeshState { DISCONNECTED, SERVICE_CONNECTED, RADIO_CONNECTED }
-
-/** 2.7.13 returns Kotlin data-object names, not legacy uppercase enum names. */
-fun meshStateFromService(value: String): MeshState = when (value) {
-    "Connected" -> MeshState.RADIO_CONNECTED
-    "Disconnected", "Connecting", "DeviceSleep" -> MeshState.DISCONNECTED
-    else -> MeshState.SERVICE_CONNECTED
+enum class MeshState {
+    DISCONNECTED,
+    SERVICE_CONNECTED,
+    RADIO_CONNECTED,
 }
 
-fun statusLabel(state: MeshState, simulated: Boolean = false): String {
-    if (simulated) return "SIMULATION: " + when (state) {
-        MeshState.DISCONNECTED -> "Mesh disconnected"
-        MeshState.SERVICE_CONNECTED -> "Radio status unknown"
-        MeshState.RADIO_CONNECTED -> "Radio connected"
+/** 2.7.13 returns Kotlin data-object names, not legacy uppercase enum names. */
+fun meshStateFromService(value: String): MeshState =
+    when (value) {
+        "Connected" -> MeshState.RADIO_CONNECTED
+        "Disconnected",
+        "Connecting",
+        "DeviceSleep" -> MeshState.DISCONNECTED
+        else -> MeshState.SERVICE_CONNECTED
     }
+
+fun statusLabel(state: MeshState, simulated: Boolean = false): String {
+    if (simulated)
+        return "SIMULATION: " +
+            when (state) {
+                MeshState.DISCONNECTED -> "Mesh disconnected"
+                MeshState.SERVICE_CONNECTED -> "Radio status unknown"
+                MeshState.RADIO_CONNECTED -> "Radio connected"
+            }
     return when (state) {
         MeshState.DISCONNECTED -> "Mesh disconnected"
         MeshState.SERVICE_CONNECTED -> "Radio status unknown"
@@ -32,16 +41,22 @@ fun statusLabel(state: MeshState, simulated: Boolean = false): String {
 interface MeshTransport {
     fun send(payload: ByteArray)
 }
+
 interface AtakTransport {
     fun receive(payload: ByteArray)
 }
+
 class BridgeCore(private val mesh: MeshTransport, private val atak: AtakTransport) {
     var state: MeshState = MeshState.DISCONNECTED
+
     fun send(payload: ByteArray) {
         check(state == MeshState.RADIO_CONNECTED) { "Radio is not connected" }
-        require(payload.isNotEmpty() && payload.size <= 200) { "Payload outside initial test budget" }
+        require(payload.isNotEmpty() && payload.size <= 200) {
+            "Payload outside initial test budget"
+        }
         mesh.send(payload.copyOf())
     }
+
     fun receive(payload: ByteArray) {
         require(payload.isNotEmpty() && payload.size <= 200) { "Invalid incoming payload" }
         atak.receive(payload.copyOf())

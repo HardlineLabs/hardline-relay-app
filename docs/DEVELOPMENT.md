@@ -225,6 +225,24 @@ binary checksums and all version pins remain unchanged.
 
 ## IDE
 
+### Kotlin formatting
+
+Use [ktfmt 0.64](https://repo.maven.apache.org/maven2/com/facebook/ktfmt/0.64/ktfmt-0.64-with-dependencies.jar)
+with Kotlin style (four-space indentation) and import removal disabled. Keep the
+formatter outside the checkout; its SHA-256 is
+`5b3d5286fd2defcc7dc8e28c21ddf156cc6b2d8682bdcd929ce4333e7a6201f2`.
+Set `$ktfmt` to the downloaded JAR path, then run from the repository root:
+
+```powershell
+$sources = git ls-files '*.kt'
+java -jar $ktfmt --kotlinlang-style --do-not-remove-unused-imports @sources
+```
+
+Add `--dry-run --set-exit-if-changed` to check without writing. Keep formatting
+changes separate from behavior changes and run the normal build and test checks.
+
+### Android Studio
+
 `./tools/open-studio.ps1` configures this repository and opens Android Studio.
 Use its embedded JBR for the IDE and the pinned Microsoft JDK 17 for Gradle.
 Product source lives here. Agent onboarding and workstation notes live in the
